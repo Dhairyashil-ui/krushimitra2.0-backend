@@ -1,0 +1,60 @@
+{
+  "dbQueryTemplates": {
+    "getFarmerByPhone": {
+      "description": "Get farmer by phone number",
+      "template": "FIND farmers WHERE phone = {phone}",
+      "example": "FIND farmers WHERE phone = '+919876543210'",
+      "mongodbEquivalent": "db.farmers.findOne({ phone: '+919876543210' })",
+      "returns": "Farmer object or null if not found"
+    },
+    "saveActivity": {
+      "description": "Save activity for a farmer",
+      "template": "INSERT into activities { farmerId, activityType, description, date, aiSuggestions }",
+      "example": "INSERT into activities { farmerId: 'farmer123', activityType: 'fertilization', description: 'Applied NPK fertilizer', date: '2023-07-21T10:30:00Z', aiSuggestions: ['Water field in 2 days'] }",
+      "mongodbEquivalent": "db.activities.insertOne({ farmerId: 'farmer123', activityType: 'fertilization', description: 'Applied NPK fertilizer', date: new Date('2023-07-21T10:30:00Z'), aiSuggestions: ['Water field in 2 days'] })",
+      "returns": "Inserted activity object with ID"
+    },
+    "getLatestMandiPrices": {
+      "description": "Get latest mandi prices for a crop in a location",
+      "template": "FIND mandiprices WHERE crop = {crop} AND location = {location} SORT date DESC LIMIT 5",
+      "example": "FIND mandiprices WHERE crop = 'Wheat' AND location = 'Pune' SORT date DESC LIMIT 5",
+      "mongodbEquivalent": "db.mandiprices.find({ crop: 'Wheat', location: 'Pune' }).sort({ date: -1 }).limit(5)",
+      "returns": "Array of up to 5 latest mandi price objects"
+    },
+    "checkGoldenChance": {
+      "description": "Check if current mandi price is a golden chance (>10% above 7-day average)",
+      "template": "COMPUTE 7-day-average price and compare current price; if > 10% then true",
+      "example": "COMPUTE 7-day-average price for Wheat in Pune and compare with latest price; if (latestPrice - averagePrice) / averagePrice > 0.10 then true",
+      "mongodbEquivalent": "1. db.mandiprices.find({ crop: 'Wheat', location: 'Pune', date: { $gte: sevenDaysAgo } }); 2. Calculate average; 3. Compare latest price with average",
+      "returns": "Boolean indicating if current price is >10% above 7-day average"
+    },
+    "fetchFarmerMemoryForChat": {
+      "description": "Fetch recent AI interactions for a farmer to provide context",
+      "template": "FIND aiinteractions WHERE farmerId = {farmerId} SORT timestamp DESC LIMIT 10",
+      "example": "FIND aiinteractions WHERE farmerId = 'farmer123' SORT timestamp DESC LIMIT 10",
+      "mongodbEquivalent": "db.aiinteractions.find({ farmerId: 'farmer123' }).sort({ timestamp: -1 }).limit(10)",
+      "returns": "Array of up to 10 recent AI interaction objects"
+    },
+    "getActiveSchemes": {
+      "description": "Get government schemes active for a farmer's location",
+      "template": "FIND schemes WHERE startDate <= {currentDate} AND endDate >= {currentDate} AND (location = {farmerLocation} OR location = 'all')",
+      "example": "FIND schemes WHERE startDate <= '2023-07-21' AND endDate >= '2023-07-21' AND (location = 'Pune' OR location = 'all')",
+      "mongodbEquivalent": "db.schemes.find({ startDate: { $lte: new Date() }, endDate: { $gte: new Date() }, $or: [{ location: 'Pune' }, { location: 'all' }] })",
+      "returns": "Array of active scheme objects"
+    },
+    "getCropHealthHistory": {
+      "description": "Get recent crop health diagnoses for a farmer",
+      "template": "FIND crop_health WHERE farmerId = {farmerId} SORT diagnosedAt DESC LIMIT 5",
+      "example": "FIND crop_health WHERE farmerId = 'farmer123' SORT diagnosedAt DESC LIMIT 5",
+      "mongodbEquivalent": "db.crop_health.find({ farmerId: 'farmer123' }).sort({ diagnosedAt: -1 }).limit(5)",
+      "returns": "Array of up to 5 recent crop health diagnosis objects"
+    },
+    "getWeatherAlerts": {
+      "description": "Get recent weather alerts for a farmer",
+      "template": "FIND alerts WHERE farmerId = {farmerId} AND type = 'weather' AND status = 'active' SORT createdAt DESC LIMIT 3",
+      "example": "FIND alerts WHERE farmerId = 'farmer123' AND type = 'weather' AND status = 'active' SORT createdAt DESC LIMIT 3",
+      "mongodbEquivalent": "db.alerts.find({ farmerId: 'farmer123', type: 'weather', status: 'active' }).sort({ createdAt: -1 }).limit(3)",
+      "returns": "Array of up to 3 recent active weather alert objects"
+    }
+  }
+}

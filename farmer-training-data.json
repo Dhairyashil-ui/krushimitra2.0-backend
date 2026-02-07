@@ -1,0 +1,27 @@
+{
+  "training_examples": [
+
+  ],
+  "regional_variations": {
+    "north_india": {
+      "crops": ["wheat", "rice", "sugarcane", "mustard"],
+      "seasons": ["kharif", "rabi", "zaid"],
+      "common_issues": ["waterlogging", "hail damage", "late frost"]
+    },
+    "south_india": {
+      "crops": ["rice", "coconut", "banana", "arecanut"],
+      "seasons": ["kharif", "rabi", "summer"],
+      "common_issues": ["drought", "cyclone damage", "salinity"]
+    },
+    "west_india": {
+      "crops": ["cotton", "groundnut", "bajra", "tur"],
+      "seasons": ["kharif", "rabi", "zaid"],
+      "common_issues": ["drought", "pest infestation", "soil erosion"]
+    },
+    "east_india": {
+      "crops": ["rice", "jute", "tea", "potato"],
+      "seasons": ["kharif", "rabi", "zaid"],
+      "common_issues": ["flooding", "high humidity", "fungal diseases"]
+    }
+  }
+}

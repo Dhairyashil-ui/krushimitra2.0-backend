@@ -1,0 +1,59 @@
+{
+  "testPlanResults": [
+    {
+      "testCase": "TC1",
+      "description": "Connect to DB",
+      "status": "FAIL",
+      "details": "Missing environment variables: DB_USER, DB_PASS, and/or CLUSTER_HOST must be set in .env file",
+      "expected": "CONNECTED",
+      "actual": "ERROR_CONNECT"
+    },
+    {
+      "testCase": "TC2",
+      "description": "Create collections if missing",
+      "status": "FAIL",
+      "details": "Cannot verify collections without database connection",
+      "expected": "all collections present",
+      "actual": "ERROR_CONNECT"
+    },
+    {
+      "testCase": "TC3",
+      "description": "Insert sample farmer and retrieve by phone",
+      "status": "FAIL",
+      "details": "Cannot insert farmer without database connection",
+      "expected": "can be retrieved by phone",
+      "actual": "ERROR_CONNECT"
+    },
+    {
+      "testCase": "TC4",
+      "description": "Log activity and verify it appears in activities query",
+      "status": "FAIL",
+      "details": "Cannot log activity without database connection",
+      "expected": "appears in activities query",
+      "actual": "ERROR_CONNECT"
+    },
+    {
+      "testCase": "TC5",
+      "description": "Insert mandi price and verify it's returned as latest for crop+location",
+      "status": "FAIL",
+      "details": "Cannot insert mandi price without database connection",
+      "expected": "mandiprices returns it as latest for crop+location",
+      "actual": "ERROR_CONNECT"
+    },
+    {
+      "testCase": "TC6",
+      "description": "Golden chance logic test",
+      "status": "FAIL",
+      "details": "Cannot test golden chance logic without database connection",
+      "expected": "alerts entry created",
+      "actual": "ERROR_CONNECT"
+    }
+  ],
+  "summary": {
+    "totalTests": 6,
+    "passed": 0,
+    "failed": 6,
+    "passRate": "0%"
+  },
+  "notes": "All tests failed due to missing MongoDB credentials. To run these tests successfully, update the .env file with valid MongoDB credentials (DB_USER, DB_PASS, CLUSTER_HOST) and ensure the MongoDB Atlas cluster is accessible."
+}
