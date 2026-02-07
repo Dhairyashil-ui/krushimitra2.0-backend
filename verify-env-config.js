@@ -14,6 +14,7 @@ const requiredVars = [
   'CLUSTER_HOST'
 ];
 
+
 let allPresent = true;
 
 requiredVars.forEach(varName => {
@@ -30,13 +31,13 @@ console.log(`\n=== Connection Strings ===\n`);
 if (allPresent) {
   console.log("Reader Connection String:");
   console.log(`mongodb+srv://${process.env.DB_READER_USER}:*****@${process.env.CLUSTER_HOST}/KrushiMitraDB?retryWrites=true&w=majority\n`);
-  
+
   console.log("Writer Connection String:");
   console.log(`mongodb+srv://${process.env.DB_WRITER_USER}:*****@${process.env.CLUSTER_HOST}/KrushiMitraDB?retryWrites=true&w=majority\n`);
-  
+
   console.log("Admin Connection String:");
   console.log(`mongodb+srv://${process.env.DB_ADMIN_USER}:*****@${process.env.CLUSTER_HOST}/KrushiMitraDB?retryWrites=true&w=majority\n`);
-  
+
   console.log("=== Recommendations ===");
   console.log("1. Verify all credentials are correct in MongoDB Atlas");
   console.log("2. Ensure all users have appropriate roles assigned");
