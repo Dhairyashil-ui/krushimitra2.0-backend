@@ -5,8 +5,10 @@ import argparse
 import logging
 import numpy as np
 
-# Suppress logs
+# Suppress logs and GUI
 os.environ["YOLO_VERBOSE"] = "False"
+import matplotlib
+matplotlib.use('Agg') # Force headless backend
 
 # Define Paths
 MODELS_DIR = os.path.join(os.path.dirname(__file__), '..', 'models')

@@ -1671,10 +1671,13 @@ app.post('/predict', upload.single('file'), async (req, res) => {
       if (req.file?.path && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
     } catch (e) { }
 
-    res.status(500).json({
+    // Return 200 with error details so frontend can handle it gracefully
+    res.json({
       success: false,
-      message: "Internal Server Error during prediction pipeline",
-      error: error.message
+      disease: "Analysis Error",
+      confidence: 0,
+      details: "The analysis server encountered an error. Please try again.",
+      debug: error.message
     });
   }
 });
