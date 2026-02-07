@@ -1491,7 +1491,17 @@ app.post('/predict', upload.single('file'), async (req, res) => {
     return res.status(400).json({ success: false, message: 'No file uploaded' });
   }
 
-  const filePath = file.path;
+  // Append extension to help OpenCV/PIL identify format
+  const originalName = file.originalname || 'image.jpg';
+  const ext = path.extname(originalName) || '.jpg';
+  const filePath = file.path + ext;
+
+  try {
+    fs.renameSync(file.path, filePath);
+  } catch (err) {
+    console.error('Failed to rename upload:', err);
+    // Continue with original path if rename fails
+  }
 
   try {
     console.log(`📸 File uploaded: ${filePath} (${file.size} bytes)`);
