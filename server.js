@@ -1515,6 +1515,8 @@ app.post('/predict', upload.single('file'), async (req, res) => {
       pythonArgs.push(plantIdentity.plant_common);
     }
 
+    console.log(`🐍 Executing Python: python ${pythonArgs.join(' ')}`);
+
     const pythonProcess = spawn('python', pythonArgs);
 
     let pythonData = '';
@@ -1522,17 +1524,25 @@ app.post('/predict', upload.single('file'), async (req, res) => {
 
     const diseaseResult = await new Promise((resolve, reject) => {
       pythonProcess.stdout.on('data', (data) => {
-        pythonData += data.toString();
+        const str = data.toString();
+        console.log(`🐍 Python STDOUT: ${str}`);
+        pythonData += str;
       });
 
       pythonProcess.stderr.on('data', (data) => {
-        pythonError += data.toString();
+        const str = data.toString();
+        console.error(`🐍 Python STDERR: ${str}`);
+        pythonError += str;
       });
 
       pythonProcess.on('close', (code) => {
+        console.log(`🐍 Python Process Exited with code: ${code}`);
+
         if (code !== 0) {
-          console.error(`Python script exited with code ${code}`);
-          console.error(`Python Error: ${pythonError}`);
+          console.error(`❌ Python script failed!`);
+          console.error(`Exit Code: ${code}`);
+          console.error(`Error Output: ${pythonError}`);
+
           // Resolve with error state rather than rejecting to prevent server crash
           resolve({
             success: false,

@@ -37,11 +37,13 @@ def main():
     # IMPORT LIBRARIES
     # ---------------------------------------------------------
     try:
+        sys.stderr.write("DEBUG: Importing libraries...\n")
         from ultralytics import YOLO
         import cv2
         import torch
         from torchvision import models, transforms
         from PIL import Image
+        sys.stderr.write("DEBUG: Libraries imported successfully.\n")
     except ImportError as e:
         error_exit("Missing dependencies", f"Please install torch torchvision ultralytics opencv-python: {str(e)}")
 
@@ -66,10 +68,13 @@ def main():
     
     try:
         # Load YOLO Model
+        sys.stderr.write(f"DEBUG: Loading YOLO model from {YOLO_MODEL_PATH}...\n")
         yolo_model = YOLO(YOLO_MODEL_PATH)
         
         # Run Inference
+        sys.stderr.write("DEBUG: Running YOLO inference...\n")
         detections = yolo_model(image_path)
+        sys.stderr.write(f"DEBUG: YOLO inference complete. Found {len(detections)} detection result objects.\n")
         
         best_box = None
         max_area = 0
@@ -126,6 +131,7 @@ def main():
         try:
             # Prepare Model
             # Using MobileNetV3 Large with ImageNet weights
+            sys.stderr.write("DEBUG: Loading MobileNetV3 model...\n")
             weights = models.MobileNet_V3_Large_Weights.IMAGENET1K_V1
             model = models.mobilenet_v3_large(weights=weights)
             model.eval()
@@ -142,6 +148,7 @@ def main():
             input_batch = input_tensor.unsqueeze(0) # create a mini-batch as expected by the model
 
             # Inference
+            sys.stderr.write("DEBUG: Running MobileNet inference...\n")
             with torch.no_grad():
                 output = model(input_batch)
             
