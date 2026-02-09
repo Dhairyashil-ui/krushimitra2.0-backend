@@ -156,19 +156,8 @@ class PythonService {
     });
 
     this.process.on('close', (code) => {
-      console.error(`🐍 Python Service Died (code ${code}). Restarting in 1s...`);
-
-      // Reject all pending requests
-      if (this.queue.size > 0) {
-        console.warn(`⚠️ Rejecting ${this.queue.size} pending requests due to service restart`);
-        for (const [id, req] of this.queue) {
-          req.reject(new Error("Python service restarted"));
-        }
-        this.queue.clear();
-      }
-
-      this.isReady = false;
-      setTimeout(() => this.start(), 1000);
+      console.error(`🐍 Python Service crashed permanently (code ${code})`);
+      process.exit(1); // Let Render restart cleanly
     });
 
     this.isReady = true;
@@ -1640,14 +1629,20 @@ app.post('/predict', upload.single('file'), async (req, res) => {
 
     let diseaseResult;
     try {
-      // Use 20s timeout and pass reqId for tracking
+      // Use 15s timeout and pass reqId for tracking
       diseaseResult = await withTimeout(
         pythonService.predict(inferencePayload, reqId),
-        20000
+        15000
       );
     } catch (err) {
       console.error("Python Service Error:", err);
-      throw new Error("Python Inference Failed");
+      diseaseResult = {
+        success: false,
+        error: "Inference Timeout or Error",
+        leaf_detection: { detected: false },
+        disease_analysis: { disease: "Unknown/Timeout", confidence: 0 }
+      };
+      // Don't throw - allow partial success
     }
     console.timeEnd(pythonLabel);
     console.log('Python Result:', diseaseResult);
@@ -1657,42 +1652,35 @@ app.post('/predict', upload.single('file'), async (req, res) => {
     // Heuristic: If diseased AND success, ask Groq.
     if (diseaseResult && diseaseResult.success && diseaseResult.disease_analysis) {
       const da = diseaseResult.disease_analysis;
-      if (da.disease_name !== 'Healthy' && da.disease_name !== 'Error') {
+      if (da.disease && da.disease !== 'Average' && da.disease !== 'Unknown') {
+
         const groqLabel = `Groq_LLM_${reqId}`;
         console.time(groqLabel);
         console.log('Step 3: Generating AI Solution via Groq...');
         try {
-          // Note: We need to implement or use existing generateAISolution if available, 
-          // or use the inline logic. Existing code used inline logic mostly.
-          // I will use distinct function if it exists, otherwise inline.
-          // Looking at previous code, it used `groq.chat.completions.create`.
-
           const prompt = `
-                    Act as an agricultural expert. 
-                    Context:
-                    - Crop: ${plantIdentity.plant_common}
-                    - Condition: "${da.disease_name}"
-                    - Confidence: ${da.confidence}
-                    
-                    Provide a JSON response:
-                    {
-                        "treatment": "Brief treatment plan (max 3 sentences).",
-                        "prevention": ["Prevention tip 1", "Prevention tip 2"],
-                        "tips": ["General tip 1"]
-                    }
-                 `;
+            Act as an agricultural expert. 
+            Context:
+            - Crop: ${plantIdentity.plant_common}
+            - Condition: "${da.disease}"
+            - Confidence: ${da.confidence}
+            
+            Provide a JSON response:
+            {
+                "treatment": "Brief treatment plan (max 3 sentences).",
+                "prevention": ["Prevention tip 1", "Prevention tip 2"],
+                "tips": ["General tip 1"]
+            }
+          `;
 
-          const startGroq = Date.now();
           const completion = await groq.chat.completions.create({
             messages: [{ role: "user", content: prompt }],
             model: "llama-3.1-8b-instant",
-            temperature: 0.3,
-            response_format: { type: "json_object" }
+            response_format: { type: "json_object" },
           });
-          console.log(`Groq took ${Date.now() - startGroq}ms`);
 
-          const content = completion.choices[0]?.message?.content;
-          if (content) aiSolution = JSON.parse(content);
+          aiSolution = JSON.parse(completion.choices[0].message.content);
+          console.log("Groq AI Solution:", aiSolution);
 
         } catch (err) {
           console.error("Groq Error:", err.message);
@@ -1700,11 +1688,11 @@ app.post('/predict', upload.single('file'), async (req, res) => {
         }
         console.timeEnd(groqLabel);
       } else {
-        // Healthy logic
+        // Healthy or minor issue logic
         aiSolution = {
           treatment: "Keep up the good work!",
-          prevention: ["Regular watering", "Monitor pests"],
-          tips: ["Ensure sunlight"]
+          prevention: ["Check regularly", "Water properly"],
+          tips: ["Ensure adequate sunlight"]
         };
       }
     }
@@ -3014,19 +3002,11 @@ app.use((error, req, res, next) => {
   });
 });
 
-// Start server only if executed directly
-if (require.main === module) {
-  const PORT = process.env.PORT || 10000;
-  app.listen(PORT, '0.0.0.0', async () => {
-    console.log(`Server running on port ${PORT}`);
-    logger.info(`KrushiMitra API server running on port ${PORT} (bound to all interfaces)`);
-    try {
-      await initializeCollections();
-      logger.info('Database collections initialized successfully');
-    } catch (error) {
-      logger.error('Failed to initialize database collections', { error: error.message });
-    }
-  });
-}
+// Initialize Database (Background)
+initializeCollections().catch(err => console.error('DB Init Failed:', err));
+
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+});
 
 module.exports = { app };
