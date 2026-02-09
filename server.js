@@ -23,27 +23,6 @@ const Groq = require('groq-sdk');
 const multer = require('multer');
 const { identifyPlant } = require('./plantnet_client');
 const { spawn } = require('child_process');
-const http = require('http');
-
-/* ==========================================================================
-   MULTER CONFIGURATION (FILE UPLOADS)
-   ========================================================================== */
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    const uploadDir = 'uploads/';
-    // Ensure directory exists
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-    cb(null, uploadDir);
-  },
-  filename: function (req, file, cb) {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, uniqueSuffix + path.extname(file.originalname));
-  }
-});
-
-const upload = multer({ storage: storage });
 
 
 
@@ -130,13 +109,14 @@ app.options('*', (req, res) => {
 class PythonService {
   constructor() {
     this.process = null;
-    this.queue = new Map(); // Changed from array to Map
+    this.queue = [];
     this.isReady = false;
     this.start();
   }
 
   start() {
     console.log('🐍 Starting Persistent Python Service...');
+    // Use stdbuf -oL if on Linux to force line buffering, but python -u avoids buffering too
     this.process = spawn('python', ['-u', 'scripts/inference_service.py']);
 
     this.process.stderr.on('data', (data) => {
@@ -157,72 +137,51 @@ class PythonService {
     });
 
     this.process.on('close', (code) => {
-      console.error(`🐍 Python Service exited (code ${code})`);
+      console.error(`🐍 Python Service Died (code ${code}). Restarting in 1s...`);
       this.isReady = false;
-
-      // Reject all pending requests
-      if (this.queue.size > 0) {
-        console.warn(`⚠️ Rejecting ${this.queue.size} pending requests due to service restart`);
-        for (const [id, req] of this.queue) {
-          req.reject(new Error("Python service restarted"));
-        }
-        this.queue.clear();
-      }
-
-      // Restart Python safely after delay
-      setTimeout(() => {
-        console.log('🔄 Attempting to restart Python service...');
-        this.start();
-      }, 2000);
+      setTimeout(() => this.start(), 1000);
     });
 
     this.isReady = true;
   }
 
-  predict(data, id) {
+  predict(data) {
     return new Promise((resolve, reject) => {
       if (!this.process || !this.isReady) {
         return reject(new Error("Python Service not ready"));
       }
 
-      const requestId = id || Date.now().toString();
+      const request = {
+        id: Date.now().toString(),
+        resolve,
+        reject
+      };
 
-      this.queue.set(requestId, { resolve, reject });
+      this.queue.push(request);
 
-      // Send request with ID
-      const payload = { ...data, id: requestId };
-      this.process.stdin.write(JSON.stringify(payload) + '\n');
+      // Simple FIFO: We send request immediately. 
+      // Note: For high concurrency, we might want to map IDs, but simple FIFO works because
+      // the Python script processes synchronously one by one.
+      this.process.stdin.write(JSON.stringify(data) + '\n');
     });
   }
 
   handleResult(result) {
-    // Match by ID
-    const id = result.id;
-    if (id && this.queue.has(id)) {
-      const req = this.queue.get(id);
+    // FIFO Matching
+    const request = this.queue.shift();
+    if (request) {
       if (result.success === false && result.error) {
-        req.resolve(result); // Resolve with error object to match old API flow
+        // request.reject(new Error(result.error));
+        // Resolve with error object to match old API flow
+        request.resolve(result);
       } else {
-        req.resolve(result);
+        request.resolve(result);
       }
-      this.queue.delete(id);
-    } else {
-      // Fallback for cases where ID might be missing or mismatched (shouldn't happen with updated script)
-      console.warn('⚠️ Received result with unknown or missing ID:', result);
     }
   }
 }
 
-// Helper for inference timeout
-const withTimeout = (promise, ms) =>
-  Promise.race([
-    promise,
-    new Promise((_, reject) =>
-      setTimeout(() => reject(new Error("Python inference timeout")), ms)
-    )
-  ]);
-
-let pythonService = null;
+const pythonService = new PythonService();
 
 // --- End Python Service ---
 
@@ -634,18 +593,9 @@ app.get('/tts', async (req, res) => {
     }
 
     const tmpPath = path.join(__dirname, `speech-${Date.now()}.mp3`);
-    let saved;
-    try {
-      saved = await generateSpeech(text, lang, { outputFile: tmpPath });
-    } catch (e) {
-      console.error('TTS Generation Error (Ignored for stability):', e.message);
-      return res.status(200).json({
-        success: false,
-        message: "TTS temporarily unavailable"
-      });
-    }
+    const saved = await generateSpeech(text, lang, { outputFile: tmpPath });
 
-    if (!saved || !fs.existsSync(saved)) {
+    if (!fs.existsSync(saved)) {
       return res.status(500).json({
         error: { code: 'TTS_ERROR', message: 'Speech file not found after generation' }
       });
@@ -1606,17 +1556,7 @@ app.post('/auth/verify', async (req, res) => {
 // --- PREDICT ENDPOINT ---
 app.post('/predict', upload.single('file'), async (req, res) => {
   console.log('\n--- NEW PREDICTION REQUEST ---');
-  // Safety timeout for the entire request (Render protection)
-  res.setTimeout(30000, () => {
-    res.status(504).json({
-      success: false,
-      message: "Request timed out. Please try again."
-    });
-  });
-
-  const reqId = Date.now() + Math.random().toString(36).substring(7);
-  const totalTimeLabel = `TOTAL_REQUEST_TIME_${reqId}`;
-  console.time(totalTimeLabel);
+  console.time('TOTAL_REQUEST_TIME');
 
   try {
     if (!req.file) {
@@ -1631,11 +1571,10 @@ app.post('/predict', upload.single('file'), async (req, res) => {
     const filePath = req.file.path;
 
     // 1. PlantNet Identification
-    const plantNetLabel = `PlantNet_API_${reqId}`;
-    console.time(plantNetLabel);
+    console.time('PlantNet_API');
     console.log('Step 1: Calling PlantNet...');
     const plantIdentity = await identifyPlant(filePath, organ);
-    console.timeEnd(plantNetLabel);
+    console.timeEnd('PlantNet_API');
 
     if (!plantIdentity) {
       throw new Error("PlantNet Identification Failed");
@@ -1643,8 +1582,7 @@ app.post('/predict', upload.single('file'), async (req, res) => {
     console.log('PlantNet Result:', plantIdentity.plant_common);
 
     // 2. Local Disease Detection (Python)
-    const pythonLabel = `Python_Inference_${reqId}`;
-    console.time(pythonLabel);
+    console.time('Python_Inference');
     console.log('Step 2: Calling Python Inference Service...');
 
     const inferencePayload = {
@@ -1654,22 +1592,12 @@ app.post('/predict', upload.single('file'), async (req, res) => {
 
     let diseaseResult;
     try {
-      // Use 15s timeout and pass reqId for tracking
-      diseaseResult = await withTimeout(
-        pythonService.predict(inferencePayload, reqId),
-        15000
-      );
+      diseaseResult = await pythonService.predict(inferencePayload);
     } catch (err) {
       console.error("Python Service Error:", err);
-      diseaseResult = {
-        success: false,
-        error: "Inference Timeout or Error",
-        leaf_detection: { detected: false },
-        disease_analysis: { disease: "Unknown/Timeout", confidence: 0 }
-      };
-      // Don't throw - allow partial success
+      throw new Error("Python Inference Failed");
     }
-    console.timeEnd(pythonLabel);
+    console.timeEnd('Python_Inference');
     console.log('Python Result:', diseaseResult);
 
     // 3. AI Solution (Groq)
@@ -1677,47 +1605,53 @@ app.post('/predict', upload.single('file'), async (req, res) => {
     // Heuristic: If diseased AND success, ask Groq.
     if (diseaseResult && diseaseResult.success && diseaseResult.disease_analysis) {
       const da = diseaseResult.disease_analysis;
-      if (da.disease && da.disease !== 'Average' && da.disease !== 'Unknown') {
-
-        const groqLabel = `Groq_LLM_${reqId}`;
-        console.time(groqLabel);
+      if (da.disease_name !== 'Healthy' && da.disease_name !== 'Error') {
+        console.time('Groq_LLM');
         console.log('Step 3: Generating AI Solution via Groq...');
         try {
-          const prompt = `
-            Act as an agricultural expert. 
-            Context:
-            - Crop: ${plantIdentity.plant_common}
-            - Condition: "${da.disease}"
-            - Confidence: ${da.confidence}
-            
-            Provide a JSON response:
-            {
-                "treatment": "Brief treatment plan (max 3 sentences).",
-                "prevention": ["Prevention tip 1", "Prevention tip 2"],
-                "tips": ["General tip 1"]
-            }
-          `;
+          // Note: We need to implement or use existing generateAISolution if available, 
+          // or use the inline logic. Existing code used inline logic mostly.
+          // I will use distinct function if it exists, otherwise inline.
+          // Looking at previous code, it used `groq.chat.completions.create`.
 
+          const prompt = `
+                    Act as an agricultural expert. 
+                    Context:
+                    - Crop: ${plantIdentity.plant_common}
+                    - Condition: "${da.disease_name}"
+                    - Confidence: ${da.confidence}
+                    
+                    Provide a JSON response:
+                    {
+                        "treatment": "Brief treatment plan (max 3 sentences).",
+                        "prevention": ["Prevention tip 1", "Prevention tip 2"],
+                        "tips": ["General tip 1"]
+                    }
+                 `;
+
+          const startGroq = Date.now();
           const completion = await groq.chat.completions.create({
             messages: [{ role: "user", content: prompt }],
             model: "llama-3.1-8b-instant",
-            response_format: { type: "json_object" },
+            temperature: 0.3,
+            response_format: { type: "json_object" }
           });
+          console.log(`Groq took ${Date.now() - startGroq}ms`);
 
-          aiSolution = JSON.parse(completion.choices[0].message.content);
-          console.log("Groq AI Solution:", aiSolution);
+          const content = completion.choices[0]?.message?.content;
+          if (content) aiSolution = JSON.parse(content);
 
         } catch (err) {
           console.error("Groq Error:", err.message);
           aiSolution = { treatment: "Consult local expert.", prevention: [], tips: [] };
         }
-        console.timeEnd(groqLabel);
+        console.timeEnd('Groq_LLM');
       } else {
-        // Healthy or minor issue logic
+        // Healthy logic
         aiSolution = {
           treatment: "Keep up the good work!",
-          prevention: ["Check regularly", "Water properly"],
-          tips: ["Ensure adequate sunlight"]
+          prevention: ["Regular watering", "Monitor pests"],
+          tips: ["Ensure sunlight"]
         };
       }
     }
@@ -1727,7 +1661,7 @@ app.post('/predict', upload.single('file'), async (req, res) => {
       if (fs.existsSync(filePath)) await fs.unlink(filePath);
     } catch (e) { }
 
-    console.timeEnd(totalTimeLabel);
+    console.timeEnd('TOTAL_REQUEST_TIME');
 
     res.json({
       success: true,
@@ -1743,7 +1677,7 @@ app.post('/predict', upload.single('file'), async (req, res) => {
     });
 
   } catch (error) {
-    if (typeof totalTimeLabel !== 'undefined') console.timeEnd(totalTimeLabel);
+    console.timeEnd('TOTAL_REQUEST_TIME');
     console.error('Error in /predict:', error);
     res.status(500).json({
       success: false,
@@ -3027,20 +2961,17 @@ app.use((error, req, res, next) => {
   });
 });
 
-// Initialize Database (Background)
-initializeCollections().catch(err => console.error('DB Init Failed:', err));
+// Start server only if executed directly
+if (require.main === module) {
+  app.listen(PORT, '0.0.0.0', async () => {
+    logger.info(`KrushiMitra API server running on port ${PORT} (bound to all interfaces)`);
+    try {
+      await initializeCollections();
+      logger.info('Database collections initialized successfully');
+    } catch (error) {
+      logger.error('Failed to initialize database collections', { error: error.message });
+    }
+  });
+}
 
-// Create HTTP server with timeout configurations
-const server = http.createServer(app);
-
-// Render-safe timeout settings
-server.keepAliveTimeout = 65000; // 65 seconds
-server.headersTimeout = 66000;   // 66 seconds (must be > keepAliveTimeout)
-
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-  // Initialize Python Service AFTER server starts listening (Render Requirement)
-  pythonService = new PythonService();
-});
-
-module.exports = { app, server };
+module.exports = { app };
