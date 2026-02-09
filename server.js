@@ -222,7 +222,7 @@ const withTimeout = (promise, ms) =>
     )
   ]);
 
-const pythonService = new PythonService();
+let pythonService = null;
 
 // --- End Python Service ---
 
@@ -634,9 +634,18 @@ app.get('/tts', async (req, res) => {
     }
 
     const tmpPath = path.join(__dirname, `speech-${Date.now()}.mp3`);
-    const saved = await generateSpeech(text, lang, { outputFile: tmpPath });
+    let saved;
+    try {
+      saved = await generateSpeech(text, lang, { outputFile: tmpPath });
+    } catch (e) {
+      console.error('TTS Generation Error (Ignored for stability):', e.message);
+      return res.status(200).json({
+        success: false,
+        message: "TTS temporarily unavailable"
+      });
+    }
 
-    if (!fs.existsSync(saved)) {
+    if (!saved || !fs.existsSync(saved)) {
       return res.status(500).json({
         error: { code: 'TTS_ERROR', message: 'Speech file not found after generation' }
       });
@@ -3030,6 +3039,8 @@ server.headersTimeout = 66000;   // 66 seconds (must be > keepAliveTimeout)
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Server running on port ${PORT}`);
+  // Initialize Python Service AFTER server starts listening (Render Requirement)
+  pythonService = new PythonService();
 });
 
 module.exports = { app, server };

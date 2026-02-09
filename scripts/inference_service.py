@@ -240,6 +240,7 @@ def main():
     
     # Main Loop
     while True:
+        request = None  # Track request for error handling
         try:
             line = sys.stdin.readline()
             if not line:
@@ -254,15 +255,20 @@ def main():
                 response = process_request(request)
             except json.JSONDecodeError as e:
                 log_error(f"Invalid JSON: {e}")
-                response = {"success": False, "error": "Invalid JSON input"}
+                response = {"success": False, "error": "Invalid JSON input", "id": None}
             
             # CRITICAL: Always print response with flush to prevent Node.js hanging
             print(json.dumps(response), flush=True)
             
         except Exception as e:
             log_error(f"Loop error: {e}")
-            # CRITICAL: Always send error response with flush
-            print(json.dumps({"success": False, "error": "Internal Service Error"}), flush=True)
+            # CRITICAL: Always send error response with flush AND include request ID
+            error_response = {
+                "success": False,
+                "error": "Internal Service Error",
+                "id": request.get("id") if request and isinstance(request, dict) else None
+            }
+            print(json.dumps(error_response), flush=True)
 
 if __name__ == "__main__":
     main()
