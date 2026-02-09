@@ -19,39 +19,74 @@ def log_error(msg):
     sys.stderr.flush()
 
 # Define Paths
-MODELS_DIR = os.path.join(os.path.dirname(__file__), '..', 'models')
-YOLO_MODEL_PATH = "yolov8n.pt"
+MODELS_DIR = os.path.dirname(os.path.abspath(__file__)) # Use script dir as base if needed, or current
+# We assume the script is in scripts/ and models are in ../ or root. 
+# User said model is in D:\finalkrushimitra_001\KrushiMitra-Backend\leaf_disease_mobilenet.pth
+# which is the parent of 'scripts/'
+BACKEND_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+YOLO_MODEL_PATH = "yolov8n.pt" # Assuming YOLO is also in root or reachable
+CUSTOM_MODEL_PATH = os.path.join(BACKEND_ROOT, "leaf_disease_mobilenet.pth")
+
+# Custom Classes
+CLASSES = [
+    "Tomato - Healthy",
+    "Tomato - Early Blight",
+    "Tomato - Late Blight",
+    "Tomato - Leaf Mold"
+]
 
 # Global Models
 yolo_model = None
 mobilenet_model = None
 mobilenet_preprocess = None
-mobile_net_weights = None
 
 def load_models():
     """Load models once at startup."""
-    global yolo_model, mobilenet_model, mobilenet_preprocess, mobile_net_weights
+    global yolo_model, mobilenet_model, mobilenet_preprocess
     
     try:
         log_debug("Importing AI Libraries...")
         from ultralytics import YOLO
         import torch
+        from torch import nn
         from torchvision import models
         
         # 1. Load YOLO
-        log_debug(f"Loading YOLO model from {YOLO_MODEL_PATH}...")
-        yolo_model = YOLO(YOLO_MODEL_PATH)
+        # Check if yolov8n.pt exists in root, otherwise try to download or use default
+        yolo_path = os.path.join(BACKEND_ROOT, YOLO_MODEL_PATH)
+        if not os.path.exists(yolo_path):
+             yolo_path = YOLO_MODEL_PATH # fallback to let ultralytics find/download it
+             
+        log_debug(f"Loading YOLO model from {yolo_path}...")
+        yolo_model = YOLO(yolo_path)
         
-        # 2. Load MobileNetV3
-        log_debug("Loading MobileNetV3 model...")
-        weights = models.MobileNet_V3_Large_Weights.IMAGENET1K_V1
-        mobile_net_weights = weights # store for later use (categories)
-        mobilenet_model = models.mobilenet_v3_large(weights=weights)
-        mobilenet_model.eval()
+        # 2. Load Custom MobileNetV3
+        log_debug(f"Loading Custom MobileNetV3 model from {CUSTOM_MODEL_PATH}...")
         
+        # Initialize model structure
+        mobilenet_model = models.mobilenet_v3_large(pretrained=False)
+        
+        # Modify classifier head to match training (4 classes)
+        # MobileNetV3 Large classifier: 
+        # (3): Linear(in_features=1280, out_features=1000, bias=True) -> Change to 4
+        mobilenet_model.classifier[3] = nn.Linear(1280, len(CLASSES))
+        
+        # Load Weights
+        if os.path.exists(CUSTOM_MODEL_PATH):
+            state_dict = torch.load(CUSTOM_MODEL_PATH, map_location="cpu")
+            mobilenet_model.load_state_dict(state_dict)
+            mobilenet_model.eval()
+            log_debug("Custom MobileNet loaded successfully.")
+        else:
+            log_error(f"Custom model not found at {CUSTOM_MODEL_PATH}")
+            # Fallback or exit? For now, we exit as this is critical
+            sys.exit(1)
+
+        # Standard MobileNet Preprocessing
+        # We can use the default transforms from weights even if we don't use the weights
+        weights = models.MobileNet_V3_Large_Weights.DEFAULT
         mobilenet_preprocess = weights.transforms()
         
-        log_debug("Models loaded successfully.")
     except Exception as e:
         log_error(f"Failed to load models: {e}")
         sys.exit(1)
@@ -70,7 +105,7 @@ def process_request(data):
     results_data = {
         "success": True,
         "leaf_detection": {"detected": False, "objects": 0, "model": "YOLOv8n"},
-        "disease_analysis": {"disease": "Unknown", "confidence": 0.0, "model": "MobileNetV3"}
+        "disease_analysis": {"disease": "Unknown", "confidence": 0.0, "model": "Local-MobileNetV3"}
     }
     
     try:
@@ -117,7 +152,7 @@ def process_request(data):
         else:
             cropped_img_cv2 = original_img
 
-        # STEP 2: MobileNet Classification
+        # STEP 2: Custom MobileNet Classification
         if cropped_img_cv2 is not None:
             img_rgb = cv2.cvtColor(cropped_img_cv2, cv2.COLOR_BGR2RGB)
             pil_img = Image.fromarray(img_rgb)
@@ -132,11 +167,17 @@ def process_request(data):
             top_prob, top_catid = torch.topk(probabilities, 1)
             
             confidence = top_prob[0].item()
-            category_name = mobile_net_weights.meta["categories"][top_catid[0].item()]
+            class_idx = top_catid[0].item()
             
+            if 0 <= class_idx < len(CLASSES):
+                category_name = CLASSES[class_idx]
+            else:
+                category_name = "Unknown"
+
             results_data["disease_analysis"]["confidence"] = confidence
             results_data["disease_analysis"]["raw_classification"] = category_name
-            results_data["disease_analysis"]["disease"] = f"Detected Object: {category_name}"
+            results_data["disease_analysis"]["disease"] = category_name
+
 
     except Exception as e:
         log_error(f"Inference error: {e}")
