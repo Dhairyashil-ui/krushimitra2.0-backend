@@ -1554,7 +1554,18 @@ app.post('/auth/verify', async (req, res) => {
 });
 
 // Configure Multer for temporary file uploads
-const upload = multer({ dest: 'uploads/' });
+// Configure Multer for temporary file uploads with extension preservation
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, 'uploads/')
+  },
+  filename: function (req, file, cb) {
+    const ext = path.extname(file.originalname);
+    const name = crypto.randomUUID() + ext;
+    cb(null, name);
+  }
+});
+const upload = multer({ storage: storage });
 
 // --- PREDICT ENDPOINT ---
 app.post('/predict', upload.single('file'), async (req, res) => {
@@ -1588,8 +1599,12 @@ app.post('/predict', upload.single('file'), async (req, res) => {
     console.time('Python_Inference');
     console.log('Step 2: Calling Python Inference Service...');
 
+    const imagePath = path.resolve(req.file.path);
+    const reqId = crypto.randomUUID();
+
     const inferencePayload = {
-      image_path: path.resolve(filePath),
+      image_path: imagePath,
+      id: reqId,
       plant_name: plantIdentity.plant_common
     };
 
