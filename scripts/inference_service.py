@@ -109,7 +109,29 @@ def process_request(data):
     }
     
     try:
-        # STEP 1: YOLO Detection
+        # ---------------------------------------------------------
+        # GUARD 1: CROP MODEL SELECTION
+        # ---------------------------------------------------------
+        plant_name = data.get("plant_name", "tomato").lower()  # Default to tomato if unspecified
+        
+        # Valid supported crops for this MVP
+        if "mango" in plant_name:
+            return {
+                "success": True,
+                "leaf_detection": {"detected": False, "objects": 0, "model": "None"},
+                "disease_analysis": {
+                    "disease": "Model under training",
+                    "confidence": 1.0,
+                    "model": "Future-Mango-Net"
+                }
+            }
+
+        # If not tomato and not mango, generic fallback (treat as tomato for now or error?)
+        # User said "Tomato -> disease". We'll assume anything else is processed as Tomato 
+        # UNLESS we want to be strict. Let's stick to processing as Tomato for "unknown" to be safe/lenient,
+        # but maybe log it.
+        
+        # STEP 1: YOLO Detection (Leaf presence)
         detections = yolo_model(image_path)
         
         best_box = None
@@ -136,9 +158,15 @@ def process_request(data):
                     best_box = xyxy
         
         results_data["leaf_detection"]["objects"] = len(detected_objects)
-        original_img = cv2.imread(image_path)
         
-        # Crop logic
+        # Only proceed to disease analysis if we found something, 
+        # OR if we want to force run on the whole image?
+        # Let's crop if found, else use whole image.
+        
+        original_img = cv2.imread(image_path)
+        if original_img is None:
+             return {"success": False, "error": "Could not read image file"}
+
         if best_box is not None:
             results_data["leaf_detection"]["detected"] = True
             x1, y1, x2, y2 = map(int, best_box)
@@ -152,7 +180,7 @@ def process_request(data):
         else:
             cropped_img_cv2 = original_img
 
-        # STEP 2: Custom MobileNet Classification
+        # STEP 2: Custom MobileNet Classification (Tomato)
         if cropped_img_cv2 is not None:
             img_rgb = cv2.cvtColor(cropped_img_cv2, cv2.COLOR_BGR2RGB)
             pil_img = Image.fromarray(img_rgb)
@@ -174,6 +202,18 @@ def process_request(data):
             else:
                 category_name = "Unknown"
 
+            # ---------------------------------------------------------
+            # GUARD 2: CONFIDENCE THRESHOLD
+            # ---------------------------------------------------------
+            CONFIDENCE_THRESHOLD = 0.45 # Tunable
+            
+            if confidence < CONFIDENCE_THRESHOLD:
+                category_name = "Uncertain / Healthy?" # Soft fallback
+                # Or keep the name but flag it? 
+                # User said "Add confidence guard".
+                # Let's append status
+                results_data["disease_analysis"]["status"] = "Low Confidence"
+            
             results_data["disease_analysis"]["confidence"] = confidence
             results_data["disease_analysis"]["raw_classification"] = category_name
             results_data["disease_analysis"]["disease"] = category_name
