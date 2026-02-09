@@ -105,6 +105,85 @@ app.options('*', (req, res) => {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, ngrok-skip-browser-warning');
   return res.sendStatus(204);
 });
+// --- Python Service for Persistent Inference ---
+class PythonService {
+  constructor() {
+    this.process = null;
+    this.queue = [];
+    this.isReady = false;
+    this.start();
+  }
+
+  start() {
+    console.log('🐍 Starting Persistent Python Service...');
+    // Use stdbuf -oL if on Linux to force line buffering, but python -u avoids buffering too
+    this.process = spawn('python', ['-u', 'scripts/inference_service.py']);
+
+    this.process.stderr.on('data', (data) => {
+      console.error(`🐍 [Service Log]: ${data.toString().trim()}`);
+    });
+
+    this.process.stdout.on('data', (data) => {
+      const lines = data.toString().split('\n');
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const result = JSON.parse(line);
+          this.handleResult(result);
+        } catch (e) {
+          console.error('🐍 [Service JSON Error]:', line);
+        }
+      }
+    });
+
+    this.process.on('close', (code) => {
+      console.error(`🐍 Python Service Died (code ${code}). Restarting in 1s...`);
+      this.isReady = false;
+      setTimeout(() => this.start(), 1000);
+    });
+
+    this.isReady = true;
+  }
+
+  predict(data) {
+    return new Promise((resolve, reject) => {
+      if (!this.process || !this.isReady) {
+        return reject(new Error("Python Service not ready"));
+      }
+
+      const request = {
+        id: Date.now().toString(),
+        resolve,
+        reject
+      };
+
+      this.queue.push(request);
+
+      // Simple FIFO: We send request immediately. 
+      // Note: For high concurrency, we might want to map IDs, but simple FIFO works because
+      // the Python script processes synchronously one by one.
+      this.process.stdin.write(JSON.stringify(data) + '\n');
+    });
+  }
+
+  handleResult(result) {
+    // FIFO Matching
+    const request = this.queue.shift();
+    if (request) {
+      if (result.success === false && result.error) {
+        // request.reject(new Error(result.error));
+        // Resolve with error object to match old API flow
+        request.resolve(result);
+      } else {
+        request.resolve(result);
+      }
+    }
+  }
+}
+
+const pythonService = new PythonService();
+
+// --- End Python Service ---
 
 const PORT = process.env.PORT || 3001;
 
@@ -1515,101 +1594,44 @@ app.post('/predict', upload.single('file'), async (req, res) => {
     // or return early. For now, we proceed but log it.
     console.log(`✅ Plant Identified: ${plantIdentity.plant_common} (${plantIdentity.plant_scientific})`);
 
-    // 2. Disease Analysis (Python: YOLOv8 + MobileNetV3)
+    // 2. Disease Analysis (Python: Persistent Service)
     console.log('🔬 Step 2: Running AI Disease Analysis (YOLOv8 + MobileNetV3)...');
 
-    // Pass plant name to Python script just in case it's needed for context/logging
-    // We wrap the plant name in quotes to handle spaces
-    const pythonArgs = ['scripts/crop_inference.py', filePath];
-    if (plantIdentity.plant_common) {
-      pythonArgs.push(plantIdentity.plant_common);
+    let diseaseResult;
+    try {
+      // Use the persistent service
+      diseaseResult = await pythonService.predict({
+        image_path: filePath,
+        plant_name: plantIdentity.plant_common
+      });
+
+      if (!diseaseResult.success) {
+        throw new Error(diseaseResult.error || "Unknown AI Service Error");
+      }
+
+      // Normalize result to match old format
+      // Service returns: { leaf_detection: {}, disease_analysis: {} }
+      const analysis = diseaseResult.disease_analysis;
+      const leafInfo = diseaseResult.leaf_detection;
+
+      diseaseResult = {
+        success: true,
+        disease: analysis.disease,
+        confidence: analysis.confidence,
+        details: `Detected via ${analysis.model}. Leaf detected: ${leafInfo.detected ? 'Yes' : 'No'} (${leafInfo.objects} objects)`,
+        raw: diseaseResult
+      };
+
+    } catch (err) {
+      console.error('Python Service Error:', err);
+      // Fallback or Error Handling
+      return res.json({
+        success: false,
+        disease: "Analysis Failed",
+        confidence: 0,
+        details: "AI Model Service Failed. " + err.message
+      });
     }
-
-    console.log(`🐍 Executing Python: python ${pythonArgs.join(' ')}`);
-
-    const pythonProcess = spawn('python', pythonArgs);
-
-    let pythonData = '';
-    let pythonError = '';
-
-    const diseaseResult = await new Promise((resolve, reject) => {
-      pythonProcess.stdout.on('data', (data) => {
-        const str = data.toString();
-        console.log(`🐍 Python STDOUT: ${str}`);
-        pythonData += str;
-      });
-
-      pythonProcess.stderr.on('data', (data) => {
-        const str = data.toString();
-        console.error(`🐍 Python STDERR: ${str}`);
-        pythonError += str;
-      });
-
-      pythonProcess.on('close', (code) => {
-        console.log(`🐍 Python Process Exited with code: ${code}`);
-
-        if (code !== 0) {
-          console.error(`❌ Python script failed!`);
-          console.error(`Exit Code: ${code}`);
-          console.error(`Error Output: ${pythonError}`);
-
-          // Resolve with error state rather than rejecting to prevent server crash
-          resolve({
-            success: false,
-            disease: "Analysis Failed",
-            confidence: 0,
-            details: "Computer vision model failed. " + pythonError.split('\n')[0] // Return first line of error
-          });
-        } else {
-          try {
-            // Find the JSON part of the output (in case of other stdout logs)
-            const jsonStart = pythonData.indexOf('{');
-            const jsonEnd = pythonData.lastIndexOf('}');
-            if (jsonStart !== -1 && jsonEnd !== -1) {
-              const jsonStr = pythonData.substring(jsonStart, jsonEnd + 1);
-              const result = JSON.parse(jsonStr);
-
-              if (!result.success) {
-                resolve({
-                  success: false,
-                  disease: "Error",
-                  details: result.error || "Python script error"
-                });
-                return;
-              }
-
-              const analysis = result.disease_analysis;
-              const leafInfo = result.leaf_detection;
-
-              resolve({
-                success: true,
-                disease: analysis.disease,
-                confidence: analysis.confidence,
-                details: `Detected via ${analysis.model}. Leaf detected: ${leafInfo.detected ? 'Yes' : 'No'} (${leafInfo.objects} objects)`,
-                // Pass through raw data if needed
-                raw: result
-              });
-            } else {
-              console.error('No JSON found in Python output:', pythonData);
-              resolve({
-                success: false,
-                disease: "Analysis Error",
-                confidence: 0,
-                details: "Invalid output from AI model"
-              });
-            }
-          } catch (e) {
-            console.error('Failed to parse Python output:', pythonData);
-            resolve({
-              success: false,
-              disease: "Parse Error",
-              confidence: 0,
-              details: "Could not parse model results."
-            });
-          }
-        }
-      });
-    });
 
     // 3. AI Solution (LLM)
     console.log(`🧠 Step 3: Generating AI Solution for "${diseaseResult.disease}" on "${plantIdentity.plant_common}"...`);
