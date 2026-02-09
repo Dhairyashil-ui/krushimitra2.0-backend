@@ -129,14 +129,13 @@ app.options('*', (req, res) => {
 class PythonService {
   constructor() {
     this.process = null;
-    this.queue = [];
+    this.queue = new Map(); // Changed from array to Map
     this.isReady = false;
     this.start();
   }
 
   start() {
     console.log('🐍 Starting Persistent Python Service...');
-    // Use stdbuf -oL if on Linux to force line buffering, but python -u avoids buffering too
     this.process = spawn('python', ['-u', 'scripts/inference_service.py']);
 
     this.process.stderr.on('data', (data) => {
@@ -158,6 +157,16 @@ class PythonService {
 
     this.process.on('close', (code) => {
       console.error(`🐍 Python Service Died (code ${code}). Restarting in 1s...`);
+
+      // Reject all pending requests
+      if (this.queue.size > 0) {
+        console.warn(`⚠️ Rejecting ${this.queue.size} pending requests due to service restart`);
+        for (const [id, req] of this.queue) {
+          req.reject(new Error("Python service restarted"));
+        }
+        this.queue.clear();
+      }
+
       this.isReady = false;
       setTimeout(() => this.start(), 1000);
     });
@@ -165,41 +174,48 @@ class PythonService {
     this.isReady = true;
   }
 
-  predict(data) {
+  predict(data, id) {
     return new Promise((resolve, reject) => {
       if (!this.process || !this.isReady) {
         return reject(new Error("Python Service not ready"));
       }
 
-      const request = {
-        id: Date.now().toString(),
-        resolve,
-        reject
-      };
+      const requestId = id || Date.now().toString();
 
-      this.queue.push(request);
+      this.queue.set(requestId, { resolve, reject });
 
-      // Simple FIFO: We send request immediately. 
-      // Note: For high concurrency, we might want to map IDs, but simple FIFO works because
-      // the Python script processes synchronously one by one.
-      this.process.stdin.write(JSON.stringify(data) + '\n');
+      // Send request with ID
+      const payload = { ...data, id: requestId };
+      this.process.stdin.write(JSON.stringify(payload) + '\n');
     });
   }
 
   handleResult(result) {
-    // FIFO Matching
-    const request = this.queue.shift();
-    if (request) {
+    // Match by ID
+    const id = result.id;
+    if (id && this.queue.has(id)) {
+      const req = this.queue.get(id);
       if (result.success === false && result.error) {
-        // request.reject(new Error(result.error));
-        // Resolve with error object to match old API flow
-        request.resolve(result);
+        req.resolve(result); // Resolve with error object to match old API flow
       } else {
-        request.resolve(result);
+        req.resolve(result);
       }
+      this.queue.delete(id);
+    } else {
+      // Fallback for cases where ID might be missing or mismatched (shouldn't happen with updated script)
+      console.warn('⚠️ Received result with unknown or missing ID:', result);
     }
   }
 }
+
+// Helper for inference timeout
+const withTimeout = (promise, ms) =>
+  Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("Python inference timeout")), ms)
+    )
+  ]);
 
 const pythonService = new PythonService();
 
@@ -1576,6 +1592,14 @@ app.post('/auth/verify', async (req, res) => {
 // --- PREDICT ENDPOINT ---
 app.post('/predict', upload.single('file'), async (req, res) => {
   console.log('\n--- NEW PREDICTION REQUEST ---');
+  // Safety timeout for the entire request (Render protection)
+  res.setTimeout(30000, () => {
+    res.status(504).json({
+      success: false,
+      message: "Request timed out. Please try again."
+    });
+  });
+
   const reqId = Date.now() + Math.random().toString(36).substring(7);
   const totalTimeLabel = `TOTAL_REQUEST_TIME_${reqId}`;
   console.time(totalTimeLabel);
@@ -1616,7 +1640,11 @@ app.post('/predict', upload.single('file'), async (req, res) => {
 
     let diseaseResult;
     try {
-      diseaseResult = await pythonService.predict(inferencePayload);
+      // Use 20s timeout and pass reqId for tracking
+      diseaseResult = await withTimeout(
+        pythonService.predict(inferencePayload, reqId),
+        20000
+      );
     } catch (err) {
       console.error("Python Service Error:", err);
       throw new Error("Python Inference Failed");

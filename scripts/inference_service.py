@@ -99,10 +99,13 @@ def process_request(data):
     import numpy as np
 
     image_path = data.get("image_path")
+    request_id = data.get("id") # Extract ID
+    
     if not image_path or not os.path.exists(image_path):
-        return {"success": False, "error": "Image file not found"}
+        return {"success": False, "error": "Image file not found", "id": request_id}
 
     results_data = {
+        "id": request_id, # Echo ID
         "success": True,
         "leaf_detection": {"detected": False, "objects": 0, "model": "YOLOv8n"},
         "disease_analysis": {"disease": "Unknown", "confidence": 0.0, "model": "Local-MobileNetV3"}
@@ -221,7 +224,7 @@ def process_request(data):
 
     except Exception as e:
         log_error(f"Inference error: {e}")
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": str(e), "id": request_id}
 
     return results_data
 
