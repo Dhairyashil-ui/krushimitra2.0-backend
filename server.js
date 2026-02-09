@@ -23,6 +23,7 @@ const Groq = require('groq-sdk');
 const multer = require('multer');
 const { identifyPlant } = require('./plantnet_client');
 const { spawn } = require('child_process');
+const http = require('http');
 
 /* ==========================================================================
    MULTER CONFIGURATION (FILE UPLOADS)
@@ -156,8 +157,23 @@ class PythonService {
     });
 
     this.process.on('close', (code) => {
-      console.error(`🐍 Python Service crashed permanently (code ${code})`);
-      process.exit(1); // Let Render restart cleanly
+      console.error(`🐍 Python Service exited (code ${code})`);
+      this.isReady = false;
+
+      // Reject all pending requests
+      if (this.queue.size > 0) {
+        console.warn(`⚠️ Rejecting ${this.queue.size} pending requests due to service restart`);
+        for (const [id, req] of this.queue) {
+          req.reject(new Error("Python service restarted"));
+        }
+        this.queue.clear();
+      }
+
+      // Restart Python safely after delay
+      setTimeout(() => {
+        console.log('🔄 Attempting to restart Python service...');
+        this.start();
+      }, 2000);
     });
 
     this.isReady = true;
@@ -3005,8 +3021,15 @@ app.use((error, req, res, next) => {
 // Initialize Database (Background)
 initializeCollections().catch(err => console.error('DB Init Failed:', err));
 
-app.listen(PORT, '0.0.0.0', () => {
+// Create HTTP server with timeout configurations
+const server = http.createServer(app);
+
+// Render-safe timeout settings
+server.keepAliveTimeout = 65000; // 65 seconds
+server.headersTimeout = 66000;   // 66 seconds (must be > keepAliveTimeout)
+
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
 
-module.exports = { app };
+module.exports = { app, server };

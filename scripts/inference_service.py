@@ -35,61 +35,59 @@ CLASSES = [
     "Tomato - Leaf Mold"
 ]
 
-# Global Models
-yolo_model = None
-mobilenet_model = None
-mobilenet_preprocess = None
+# ============================================================================
+# LOAD MODELS ONCE AT MODULE LEVEL (CRITICAL FOR PERFORMANCE)
+# ============================================================================
+log_debug("Importing AI Libraries...")
+from ultralytics import YOLO
+import torch
+from torch import nn
+from torchvision import models
 
-def load_models():
-    """Load models once at startup."""
-    global yolo_model, mobilenet_model, mobilenet_preprocess
+try:
+    # 1. Load YOLO
+    yolo_path = os.path.join(BACKEND_ROOT, YOLO_MODEL_PATH)
+    if not os.path.exists(yolo_path):
+        yolo_path = YOLO_MODEL_PATH  # fallback to let ultralytics find/download it
     
-    try:
-        log_debug("Importing AI Libraries...")
-        from ultralytics import YOLO
-        import torch
-        from torch import nn
-        from torchvision import models
-        
-        # 1. Load YOLO
-        # Check if yolov8n.pt exists in root, otherwise try to download or use default
-        yolo_path = os.path.join(BACKEND_ROOT, YOLO_MODEL_PATH)
-        if not os.path.exists(yolo_path):
-             yolo_path = YOLO_MODEL_PATH # fallback to let ultralytics find/download it
-             
-        log_debug(f"Loading YOLO model from {yolo_path}...")
-        yolo_model = YOLO(yolo_path)
-        
-        # 2. Load Custom MobileNetV3
-        log_debug(f"Loading Custom MobileNetV3 model from {CUSTOM_MODEL_PATH}...")
-        
-        # Initialize model structure
-        mobilenet_model = models.mobilenet_v3_large(pretrained=False)
-        
-        # Modify classifier head to match training (4 classes)
-        # MobileNetV3 Large classifier: 
-        # (3): Linear(in_features=1280, out_features=1000, bias=True) -> Change to 4
-        mobilenet_model.classifier[3] = nn.Linear(1280, len(CLASSES))
-        
-        # Load Weights
-        if os.path.exists(CUSTOM_MODEL_PATH):
-            state_dict = torch.load(CUSTOM_MODEL_PATH, map_location="cpu")
-            mobilenet_model.load_state_dict(state_dict)
-            mobilenet_model.eval()
-            log_debug("Custom MobileNet loaded successfully.")
-        else:
-            log_error(f"Custom model not found at {CUSTOM_MODEL_PATH}")
-            # Fallback or exit? For now, we exit as this is critical
-            sys.exit(1)
-
-        # Standard MobileNet Preprocessing
-        # We can use the default transforms from weights even if we don't use the weights
-        weights = models.MobileNet_V3_Large_Weights.DEFAULT
-        mobilenet_preprocess = weights.transforms()
-        
-    except Exception as e:
-        log_error(f"Failed to load models: {e}")
-        sys.exit(1)
+    log_debug(f"Loading YOLO model from {yolo_path}...")
+    yolo_model = YOLO(yolo_path)
+    log_debug("✅ YOLO loaded successfully")
+    
+    # 2. Load Custom MobileNetV3
+    log_debug(f"Loading Custom MobileNetV3 model from {CUSTOM_MODEL_PATH}...")
+    
+    # Initialize model structure
+    mobilenet_model = models.mobilenet_v3_large(pretrained=False)
+    
+    # Modify classifier head to match training (4 classes)
+    mobilenet_model.classifier[3] = nn.Linear(1280, len(CLASSES))
+    
+    # Load Weights
+    if os.path.exists(CUSTOM_MODEL_PATH):
+        state_dict = torch.load(CUSTOM_MODEL_PATH, map_location="cpu")
+        mobilenet_model.load_state_dict(state_dict)
+        mobilenet_model.eval()
+        log_debug("✅ Custom MobileNet loaded successfully")
+    else:
+        log_error(f"❌ Custom model not found at {CUSTOM_MODEL_PATH}")
+        mobilenet_model = None  # Continue without it
+    
+    # Standard MobileNet Preprocessing
+    weights = models.MobileNet_V3_Large_Weights.DEFAULT
+    mobilenet_preprocess = weights.transforms()
+    
+    # Signal readiness to Node.js
+    print("READY", flush=True)
+    log_debug("🚀 Service READY - Models loaded successfully")
+    
+except Exception as e:
+    log_error(f"❌ Fatal error loading models: {e}")
+    yolo_model = None
+    mobilenet_model = None
+    mobilenet_preprocess = None
+    print("ERROR", flush=True)
+    # Don't exit - stay alive but return errors
 
 def process_request(data):
     """Process a single inference request."""
@@ -99,13 +97,21 @@ def process_request(data):
     import numpy as np
 
     image_path = data.get("image_path")
-    request_id = data.get("id") # Extract ID
+    request_id = data.get("id")  # Extract ID
+    
+    # GUARD 0: Check if models are loaded
+    if yolo_model is None or mobilenet_model is None:
+        return {
+            "success": False, 
+            "error": "Models not loaded - service initializing or failed", 
+            "id": request_id
+        }
     
     if not image_path or not os.path.exists(image_path):
         return {"success": False, "error": "Image file not found", "id": request_id}
 
     results_data = {
-        "id": request_id, # Echo ID
+        "id": request_id,  # Echo ID
         "success": True,
         "leaf_detection": {"detected": False, "objects": 0, "model": "YOLOv8n"},
         "disease_analysis": {"disease": "Unknown", "confidence": 0.0, "model": "Local-MobileNetV3"}
@@ -229,17 +235,15 @@ def process_request(data):
     return results_data
 
 def main():
-    # Load models initially
-    load_models()
-    
-    log_debug("Service Ready. Waiting for input...")
+    """Main request processing loop - models already loaded at module level."""
+    log_debug("🎧 Listening for inference requests...")
     
     # Main Loop
     while True:
         try:
             line = sys.stdin.readline()
             if not line:
-                break # EOF
+                break  # EOF
             
             line = line.strip()
             if not line:
@@ -248,18 +252,17 @@ def main():
             try:
                 request = json.loads(line)
                 response = process_request(request)
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as e:
+                log_error(f"Invalid JSON: {e}")
                 response = {"success": False, "error": "Invalid JSON input"}
             
-            # Print response as a single JSON line to stdout
-            print(json.dumps(response))
-            sys.stdout.flush()
+            # CRITICAL: Always print response with flush to prevent Node.js hanging
+            print(json.dumps(response), flush=True)
             
         except Exception as e:
             log_error(f"Loop error: {e}")
-            # Try to send error response if possible
-            print(json.dumps({"success": False, "error": "Internal Service Error"}))
-            sys.stdout.flush()
+            # CRITICAL: Always send error response with flush
+            print(json.dumps({"success": False, "error": "Internal Service Error"}), flush=True)
 
 if __name__ == "__main__":
     main()
