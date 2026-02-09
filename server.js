@@ -1576,7 +1576,9 @@ app.post('/auth/verify', async (req, res) => {
 // --- PREDICT ENDPOINT ---
 app.post('/predict', upload.single('file'), async (req, res) => {
   console.log('\n--- NEW PREDICTION REQUEST ---');
-  console.time('TOTAL_REQUEST_TIME');
+  const reqId = Date.now() + Math.random().toString(36).substring(7);
+  const totalTimeLabel = `TOTAL_REQUEST_TIME_${reqId}`;
+  console.time(totalTimeLabel);
 
   try {
     if (!req.file) {
@@ -1591,10 +1593,11 @@ app.post('/predict', upload.single('file'), async (req, res) => {
     const filePath = req.file.path;
 
     // 1. PlantNet Identification
-    console.time('PlantNet_API');
+    const plantNetLabel = `PlantNet_API_${reqId}`;
+    console.time(plantNetLabel);
     console.log('Step 1: Calling PlantNet...');
     const plantIdentity = await identifyPlant(filePath, organ);
-    console.timeEnd('PlantNet_API');
+    console.timeEnd(plantNetLabel);
 
     if (!plantIdentity) {
       throw new Error("PlantNet Identification Failed");
@@ -1602,7 +1605,8 @@ app.post('/predict', upload.single('file'), async (req, res) => {
     console.log('PlantNet Result:', plantIdentity.plant_common);
 
     // 2. Local Disease Detection (Python)
-    console.time('Python_Inference');
+    const pythonLabel = `Python_Inference_${reqId}`;
+    console.time(pythonLabel);
     console.log('Step 2: Calling Python Inference Service...');
 
     const inferencePayload = {
@@ -1617,7 +1621,7 @@ app.post('/predict', upload.single('file'), async (req, res) => {
       console.error("Python Service Error:", err);
       throw new Error("Python Inference Failed");
     }
-    console.timeEnd('Python_Inference');
+    console.timeEnd(pythonLabel);
     console.log('Python Result:', diseaseResult);
 
     // 3. AI Solution (Groq)
@@ -1626,7 +1630,8 @@ app.post('/predict', upload.single('file'), async (req, res) => {
     if (diseaseResult && diseaseResult.success && diseaseResult.disease_analysis) {
       const da = diseaseResult.disease_analysis;
       if (da.disease_name !== 'Healthy' && da.disease_name !== 'Error') {
-        console.time('Groq_LLM');
+        const groqLabel = `Groq_LLM_${reqId}`;
+        console.time(groqLabel);
         console.log('Step 3: Generating AI Solution via Groq...');
         try {
           // Note: We need to implement or use existing generateAISolution if available, 
@@ -1665,7 +1670,7 @@ app.post('/predict', upload.single('file'), async (req, res) => {
           console.error("Groq Error:", err.message);
           aiSolution = { treatment: "Consult local expert.", prevention: [], tips: [] };
         }
-        console.timeEnd('Groq_LLM');
+        console.timeEnd(groqLabel);
       } else {
         // Healthy logic
         aiSolution = {
@@ -1681,7 +1686,7 @@ app.post('/predict', upload.single('file'), async (req, res) => {
       if (fs.existsSync(filePath)) await fs.unlink(filePath);
     } catch (e) { }
 
-    console.timeEnd('TOTAL_REQUEST_TIME');
+    console.timeEnd(totalTimeLabel);
 
     res.json({
       success: true,
@@ -1697,7 +1702,7 @@ app.post('/predict', upload.single('file'), async (req, res) => {
     });
 
   } catch (error) {
-    console.timeEnd('TOTAL_REQUEST_TIME');
+    if (typeof totalTimeLabel !== 'undefined') console.timeEnd(totalTimeLabel);
     console.error('Error in /predict:', error);
     res.status(500).json({
       success: false,
@@ -2983,7 +2988,9 @@ app.use((error, req, res, next) => {
 
 // Start server only if executed directly
 if (require.main === module) {
+  const PORT = process.env.PORT || 10000;
   app.listen(PORT, '0.0.0.0', async () => {
+    console.log(`Server running on port ${PORT}`);
     logger.info(`KrushiMitra API server running on port ${PORT} (bound to all interfaces)`);
     try {
       await initializeCollections();
