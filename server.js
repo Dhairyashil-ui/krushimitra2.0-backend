@@ -1553,6 +1553,9 @@ app.post('/auth/verify', async (req, res) => {
   }
 });
 
+// Configure Multer for temporary file uploads
+const upload = multer({ dest: 'uploads/' });
+
 // --- PREDICT ENDPOINT ---
 app.post('/predict', upload.single('file'), async (req, res) => {
   console.log('\n--- NEW PREDICTION REQUEST ---');
