@@ -1500,7 +1500,6 @@ app.post('/auth/verify', async (req, res) => {
 
     if (!idToken) {
       logger.warn('Authentication failed - missing ID token');
-
       return res.status(400).json({
         error: {
           code: 'VALIDATION_ERROR',
@@ -1512,7 +1511,6 @@ app.post('/auth/verify', async (req, res) => {
     const isValid = await verifyFirebaseToken(idToken);
     if (!isValid) {
       logger.warn('Authentication failed - invalid Firebase ID token');
-
       return res.status(401).json({
         error: {
           code: 'INVALID_TOKEN',
@@ -1522,7 +1520,6 @@ app.post('/auth/verify', async (req, res) => {
     }
 
     // For demo purposes, we'll create a mock farmer
-    // In a real implementation, you'd extract user info from the token
     const mockFarmer = {
       name: 'Test Farmer',
       phone: '+919876543210',
@@ -1556,177 +1553,139 @@ app.post('/auth/verify', async (req, res) => {
   }
 });
 
-/* ==========================================================================
-   CROP DISEASE PREDICTION FLOW
-   ========================================================================== */
-
-// Configure Multer for temporary file uploads
-const upload = multer({ dest: 'uploads/' });
-
-// POST /predict - Analyze plant image (Phase 1: Plant Check, Phase 2: ID, Phase 3: Disease)
+// --- PREDICT ENDPOINT ---
 app.post('/predict', upload.single('file'), async (req, res) => {
-  const file = req.file;
-  if (!file) {
-    return res.status(400).json({ success: false, message: 'No file uploaded' });
-  }
-
-  // Append extension to help OpenCV/PIL identify format
-  const originalName = file.originalname || 'image.jpg';
-  const ext = path.extname(originalName) || '.jpg';
-  const filePath = file.path + ext;
+  console.log('\n--- NEW PREDICTION REQUEST ---');
+  console.time('TOTAL_REQUEST_TIME');
 
   try {
-    fs.renameSync(file.path, filePath);
-  } catch (err) {
-    console.error('Failed to rename upload:', err);
-    // Continue with original path if rename fails
-  }
-
-  try {
-    console.log(`📸 File uploaded: ${filePath} (${file.size} bytes)`);
-
-    // 1. Plant Identification (PlantNet)
-    console.log('🌿 Step 1: Identifying plant with PlantNet...');
-    const organ = req.body.organ || 'leaf';
-    const plantIdentity = await identifyPlant(filePath, organ);
-
-    // If PlantNet fails or returns low confidence (optional check), we might still want to proceed 
-    // or return early. For now, we proceed but log it.
-    console.log(`✅ Plant Identified: ${plantIdentity.plant_common} (${plantIdentity.plant_scientific})`);
-
-    // 2. Disease Analysis (Python: Persistent Service)
-    console.log('🔬 Step 2: Running AI Disease Analysis (YOLOv8 + MobileNetV3)...');
-
-    let diseaseResult;
-    try {
-      // Use the persistent service
-      diseaseResult = await pythonService.predict({
-        image_path: filePath,
-        plant_name: plantIdentity.plant_common
-      });
-
-      if (!diseaseResult.success) {
-        throw new Error(diseaseResult.error || "Unknown AI Service Error");
-      }
-
-      // Normalize result to match old format
-      // Service returns: { leaf_detection: {}, disease_analysis: {} }
-      const analysis = diseaseResult.disease_analysis;
-      const leafInfo = diseaseResult.leaf_detection;
-
-      diseaseResult = {
-        success: true,
-        disease: analysis.disease,
-        confidence: analysis.confidence,
-        details: `Detected via ${analysis.model}. Leaf detected: ${leafInfo.detected ? 'Yes' : 'No'} (${leafInfo.objects} objects)`,
-        raw: diseaseResult
-      };
-
-    } catch (err) {
-      console.error('Python Service Error:', err);
-      // Fallback or Error Handling
-      return res.json({
+    if (!req.file) {
+      return res.status(400).json({
         success: false,
-        disease: "Analysis Failed",
-        confidence: 0,
-        details: "AI Model Service Failed. " + err.message
+        message: 'No image file uploaded.',
       });
     }
 
-    // 3. AI Solution (LLM)
-    console.log(`🧠 Step 3: Generating AI Solution for "${diseaseResult.disease}" on "${plantIdentity.plant_common}"...`);
+    console.log('File uploaded:', req.file.originalname);
+    const organ = req.body.organ || 'leaf';
+    const filePath = req.file.path;
 
-    let aiSolution = {
-      treatment: "Consult a local agricultural expert.",
-      prevention: [],
-      tips: []
+    // 1. PlantNet Identification
+    console.time('PlantNet_API');
+    console.log('Step 1: Calling PlantNet...');
+    const plantIdentity = await identifyPlant(filePath, organ);
+    console.timeEnd('PlantNet_API');
+
+    if (!plantIdentity) {
+      throw new Error("PlantNet Identification Failed");
+    }
+    console.log('PlantNet Result:', plantIdentity.plant_common);
+
+    // 2. Local Disease Detection (Python)
+    console.time('Python_Inference');
+    console.log('Step 2: Calling Python Inference Service...');
+
+    const inferencePayload = {
+      image_path: path.resolve(filePath),
+      plant_name: plantIdentity.plant_common
     };
 
-    if (diseaseResult.success && diseaseResult.disease !== 'Healthy' && diseaseResult.disease !== 'Analysis Failed' && diseaseResult.disease !== 'Error') {
-      if (groq) {
+    let diseaseResult;
+    try {
+      diseaseResult = await pythonService.predict(inferencePayload);
+    } catch (err) {
+      console.error("Python Service Error:", err);
+      throw new Error("Python Inference Failed");
+    }
+    console.timeEnd('Python_Inference');
+    console.log('Python Result:', diseaseResult);
+
+    // 3. AI Solution (Groq)
+    let aiSolution = null;
+    // Heuristic: If diseased AND success, ask Groq.
+    if (diseaseResult && diseaseResult.success && diseaseResult.disease_analysis) {
+      const da = diseaseResult.disease_analysis;
+      if (da.disease_name !== 'Healthy' && da.disease_name !== 'Error') {
+        console.time('Groq_LLM');
+        console.log('Step 3: Generating AI Solution via Groq...');
         try {
+          // Note: We need to implement or use existing generateAISolution if available, 
+          // or use the inline logic. Existing code used inline logic mostly.
+          // I will use distinct function if it exists, otherwise inline.
+          // Looking at previous code, it used `groq.chat.completions.create`.
+
           const prompt = `
                     Act as an agricultural expert. 
-                    
                     Context:
-                    - Crop: ${plantIdentity.plant_common} (${plantIdentity.plant_scientific})
-                    - Detected Object/Condition: "${diseaseResult.disease}"
-                    - Confidence: ${(diseaseResult.confidence * 100).toFixed(1)}%
+                    - Crop: ${plantIdentity.plant_common}
+                    - Condition: "${da.disease_name}"
+                    - Confidence: ${da.confidence}
                     
-                    IMPORTANT: The disease detection model is currently running in a generic mode (ImageNet). 
-                    - If the "Detected Object" is a pest (e.g., "slug", "beetle", "worm"), treat it as a pest infestation.
-                    - If the "Detected Object" is unrelated (e.g., "pot", "velvet", "chain"), ignore it and provide GENERAL healthy care tips for this specific crop.
-                    - If the "Detected Object" sounds like a disease (e.g., "rust", "mildew"), treat it as a disease.
-                    
-                    Provide a strict JSON response (no markdown) with practical advice for an Indian farmer:
+                    Provide a JSON response:
                     {
-                        "treatment": "Brief treatment plan if a pest/disease is identified, otherwise say 'No specific disease detected, follow general care'. (max 3 sentences)",
-                        "prevention": ["List of 3 short prevention/maintenance tips"],
-                        "tips": ["List of 2 general maintenance tips for this crop"]
+                        "treatment": "Brief treatment plan (max 3 sentences).",
+                        "prevention": ["Prevention tip 1", "Prevention tip 2"],
+                        "tips": ["General tip 1"]
                     }
-                `;
+                 `;
 
+          const startGroq = Date.now();
           const completion = await groq.chat.completions.create({
             messages: [{ role: "user", content: prompt }],
             model: "llama-3.1-8b-instant",
             temperature: 0.3,
             response_format: { type: "json_object" }
           });
+          console.log(`Groq took ${Date.now() - startGroq}ms`);
 
           const content = completion.choices[0]?.message?.content;
-          if (content) {
-            aiSolution = JSON.parse(content);
-          }
+          if (content) aiSolution = JSON.parse(content);
+
         } catch (err) {
-          console.error("LLM Generation failed:", err.message);
+          console.error("Groq Error:", err.message);
+          aiSolution = { treatment: "Consult local expert.", prevention: [], tips: [] };
         }
+        console.timeEnd('Groq_LLM');
+      } else {
+        // Healthy logic
+        aiSolution = {
+          treatment: "Keep up the good work!",
+          prevention: ["Regular watering", "Monitor pests"],
+          tips: ["Ensure sunlight"]
+        };
       }
-    } else if (diseaseResult.disease === 'Healthy') {
-      aiSolution = {
-        treatment: "Your crop looks healthy! Keep up the good work.",
-        prevention: ["Continue regular watering", "Monitor for early signs of pests"],
-        tips: ["Ensure proper sunlight", "Maintain soil moisture"]
-      };
     }
 
-    // Final Response Construction
-    const finalResponse = {
+    // Cleanup
+    try {
+      if (fs.existsSync(filePath)) await fs.unlink(filePath);
+    } catch (e) { }
+
+    console.timeEnd('TOTAL_REQUEST_TIME');
+
+    res.json({
       success: true,
       plant_identification: plantIdentity,
-      disease_detection: diseaseResult,
+      disease_detection: {
+        disease: diseaseResult?.disease_analysis?.disease_name || "Unknown",
+        confidence: diseaseResult?.disease_analysis?.confidence || 0,
+        details: diseaseResult?.disease_analysis?.status || "Analysis Complete",
+        advice: diseaseResult?.disease_analysis?.recommendation
+      },
       ai_solution: aiSolution,
-      crop: plantIdentity.plant_common, // For backward compatibility
-      message: "Analysis complete"
-    };
-
-    // Cleanup
-    try {
-      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-    } catch (e) { }
-
-    res.json(finalResponse);
+      crop: plantIdentity.plant_common
+    });
 
   } catch (error) {
-    console.error('Prediction Flow Error:', error);
-    // Cleanup
-    try {
-      if (req.file?.path && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
-    } catch (e) { }
-
-    // Return 200 with error details so frontend can handle it gracefully
-    res.json({
+    console.timeEnd('TOTAL_REQUEST_TIME');
+    console.error('Error in /predict:', error);
+    res.status(500).json({
       success: false,
-      disease: "Analysis Error",
-      confidence: 0,
-      details: "The analysis server encountered an error. Please try again.",
-      debug: error.message
+      message: 'Internal server error during analysis.',
+      error: error.message,
     });
   }
 });
-
-// 3. Activity Tracking
-
-// ... (existing activity routes) ...
 
 /* ==========================================================================
    JUDGE DEMO: ORB VOICE TRIGGER
@@ -1769,10 +1728,6 @@ app.post('/demo/orb-trigger', async (req, res) => {
         demoData // Return data anyway so frontend can debug if needed
       });
     }
-
-
-
-
 
     const client = twilio(accountSid, authToken);
 
