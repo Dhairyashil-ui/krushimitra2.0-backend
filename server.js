@@ -1554,19 +1554,18 @@ app.post('/auth/verify', async (req, res) => {
 });
 
 // Configure Multer for temporary file uploads
-// Configure Multer for temporary file uploads with extension preservation
+const UPLOADS_DIR = path.join(__dirname, 'uploads');
+if (!fs.existsSync(UPLOADS_DIR)) {
+  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+}
+
 const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, 'uploads/')
+  destination: "uploads/",
+  filename: (req, file, cb) => {
+    // User requested format: Date.now() + "-" + file.originalname
+    cb(null, Date.now() + "-" + file.originalname);
   },
-  filename: function (req, file, cb) {
-    const ext = path.extname(file.originalname);
-    const name = crypto.randomUUID() + ext;
-    cb(null, name);
-  }
 });
-
-
 
 const upload = multer({ storage: storage });
 
@@ -1579,7 +1578,7 @@ app.post('/predict', upload.single('file'), async (req, res) => {
     if (!req.file) {
       return res.status(400).json({
         success: false,
-        message: 'No image file uploaded.',
+        message: "No image file uploaded.",
       });
     }
 
@@ -1593,8 +1592,13 @@ app.post('/predict', upload.single('file'), async (req, res) => {
     const plantIdentity = await identifyPlant(filePath, organ);
     console.timeEnd('PlantNet_API');
 
-    if (!plantIdentity) {
-      throw new Error("PlantNet Identification Failed");
+    if (!plantIdentity || !plantIdentity.success) {
+      console.error("PlantNet Error:", plantIdentity?.message || "Unknown error");
+      // Fallback to "Unknown" if PlantNet fails, or throw?
+      // Let's fallback to "Unknown" to allow manual override or generic detection?
+      // The user prompt relies on plant name for logic.
+      // Let's throw for now as it seems critical.
+      throw new Error(`PlantNet Identification Failed: ${plantIdentity?.message}`);
     }
     console.log('PlantNet Result:', plantIdentity.plant_common);
 
