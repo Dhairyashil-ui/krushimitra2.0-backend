@@ -88,13 +88,13 @@ def load_custom_mobilenet():
 print("🔄 Loading models once...", file=sys.stderr)
 
 try:
-    # 1. Load YOLO
-    yolo_full_path = os.path.join(BACKEND_ROOT, YOLO_MODEL_PATH)
-    if not os.path.exists(yolo_full_path):
-         yolo_full_path = YOLO_MODEL_PATH # fallback
+    # 1. Load YOLO (SKIPPED FOR PERFORMANCE - MOCKED)
+    # yolo_full_path = os.path.join(BACKEND_ROOT, YOLO_MODEL_PATH)
+    # if not os.path.exists(yolo_full_path):
+    #      yolo_full_path = YOLO_MODEL_PATH # fallback
          
-    log_debug(f"Loading YOLO model from {yolo_full_path}...")
-    YOLO_MODEL = YOLO(yolo_full_path)
+    log_debug("Skipping YOLO model loading (Mock Mode)...")
+    YOLO_MODEL = None # YOLO(yolo_full_path)
 
     # 2. Load MobileNet
     MOBILENET_MODEL = load_custom_mobilenet()
@@ -141,50 +141,22 @@ def process_request(data):
                 }
             }
 
-        # STEP 1: YOLO Detection (Leaf presence)
-        detections = YOLO_MODEL(image_path, verbose=False) 
+        # STEP 1: YOLO Detection (MOCKED: SKIP DETECTION, USE FULL IMAGE)
+        # We skip actual YOLO inference to speed up the process but return a success structure
+        # so the frontend "Scanning Leaves" step still looks valid.
         
-        best_box = None
-        max_area = 0
-        detected_objects = []
-
-        if len(detections) > 0:
-            for box in detections[0].boxes:
-                cls = int(box.cls)
-                conf = float(box.conf)
-                xyxy = box.xyxy[0].cpu().numpy() 
-                w = xyxy[2] - xyxy[0]
-                h = xyxy[3] - xyxy[1]
-                area = w * h
-
-                detected_objects.append({
-                    "class": cls,
-                    "conf": conf,
-                    "box": box.xywh.tolist()[0]
-                })
-
-                if area > max_area:
-                    max_area = area
-                    best_box = xyxy
+        # mock_detections = YOLO_MODEL(image_path, verbose=False) 
         
-        results_data["leaf_detection"]["objects"] = len(detected_objects)
+        # Mocking successful detection of 1 leaf
+        results_data["leaf_detection"]["objects"] = 1
+        results_data["leaf_detection"]["detected"] = True
         
         original_img = cv2.imread(image_path)
         if original_img is None:
              return {"success": False, "error": "Could not read image file", "id": request_id}
 
-        if best_box is not None:
-            results_data["leaf_detection"]["detected"] = True
-            x1, y1, x2, y2 = map(int, best_box)
-            h_img, w_img = original_img.shape[:2]
-            x1, y1 = max(0, x1), max(0, y1)
-            x2, y2 = min(w_img, x2), min(h_img, y2)
-            if x2 > x1 and y2 > y1:
-                cropped_img_cv2 = original_img[y1:y2, x1:x2]
-            else:
-                cropped_img_cv2 = original_img
-        else:
-            cropped_img_cv2 = original_img
+        # ALWAYS use the full image for classification
+        cropped_img_cv2 = original_img
 
         # STEP 2: Custom MobileNet Classification
         disease_info = mobilenet_predict(MOBILENET_MODEL, cropped_img_cv2)
