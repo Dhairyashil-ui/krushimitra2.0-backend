@@ -5,4 +5,4 @@ opencv-python-headless==4.9.0.80
 numpy==1.26.4
 Pillow==10.2.0
 requests==2.32.3
-edge-tts==6.1.10
+edge-tts
