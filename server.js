@@ -111,6 +111,7 @@ class PythonService {
     this.process = null;
     this.queue = [];
     this.isReady = false;
+    this.buffer = '';
     this.start();
   }
 
@@ -124,7 +125,10 @@ class PythonService {
     });
 
     this.process.stdout.on('data', (data) => {
-      const lines = data.toString().split('\n');
+      this.buffer += data.toString();
+      const lines = this.buffer.split('\n');
+      this.buffer = lines.pop(); // Keep the last incomplete chunk
+
       for (const line of lines) {
         if (!line.trim()) continue;
         try {

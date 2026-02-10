@@ -33,6 +33,10 @@ def log_error(msg):
     sys.stderr.write(f"ERROR: {msg}\n")
     sys.stderr.flush()
 
+def log_info(msg):
+    sys.stderr.write(f"INFO: {msg}\n")
+    sys.stderr.flush()
+
 # Define Paths
 MODELS_DIR = os.path.dirname(os.path.abspath(__file__)) 
 BACKEND_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -114,6 +118,8 @@ def process_request(data):
     """Process a single inference request using pre-loaded models."""
     image_path = data.get("image_path")
     request_id = data.get("id") 
+    log_info(f"Starting processing for ID: {request_id}")
+    start_ts = time.time() 
     
     if not image_path or not os.path.exists(image_path):
         return {"success": False, "error": "Image file not found", "id": request_id}
@@ -142,7 +148,9 @@ def process_request(data):
             }
 
         # STEP 1: YOLO Detection (Leaf presence)
+        yolo_start = time.time()
         detections = YOLO_MODEL(image_path, verbose=False) 
+        log_info(f"YOLO Inference took {time.time() - yolo_start:.3f}s") 
         
         best_box = None
         max_area = 0
@@ -187,7 +195,10 @@ def process_request(data):
             cropped_img_cv2 = original_img
 
         # STEP 2: Custom MobileNet Classification
+        mobilenet_start = time.time()
         disease_info = mobilenet_predict(MOBILENET_MODEL, cropped_img_cv2)
+        log_info(f"MobileNet Inference took {time.time() - mobilenet_start:.3f}s")
+        log_info(f"Total Logic Time: {time.time() - start_ts:.3f}s")
         results_data["disease_analysis"].update(disease_info)
 
     except Exception as e:
