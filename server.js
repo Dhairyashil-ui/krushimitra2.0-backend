@@ -185,7 +185,7 @@ const pythonService = new PythonService();
 
 // --- End Python Service ---
 
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 10000;
 
 app.use(express.json());
 app.use(cookieParser());
@@ -1554,17 +1554,23 @@ app.post('/auth/verify', async (req, res) => {
 });
 
 // Configure Multer for temporary file uploads
+// Configure Multer for temporary file uploads
 const UPLOADS_DIR = path.join(__dirname, 'uploads');
 if (!fs.existsSync(UPLOADS_DIR)) {
   fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 }
 
 const storage = multer.diskStorage({
-  destination: "uploads/",
-  filename: (req, file, cb) => {
-    // User requested format: Date.now() + "-" + file.originalname
-    cb(null, Date.now() + "-" + file.originalname);
+  destination: function (req, file, cb) {
+    cb(null, 'uploads/')
   },
+  filename: function (req, file, cb) {
+    // ✅ Keep extension (User Requirement: Do NOT strip extension)
+    // We add a timestamp to prevent collisions
+    const ext = path.extname(file.originalname) || '.jpg';
+    const name = path.basename(file.originalname, ext);
+    cb(null, `${Date.now()}-${name}${ext}`);
+  }
 });
 
 const upload = multer({ storage: storage });
@@ -1583,21 +1589,22 @@ app.post('/predict', upload.single('file'), async (req, res) => {
     }
 
     console.log('File uploaded:', req.file.originalname);
+
+    // ✅ Fix: Use absolute path and ensure it's a file with extension
+    const imagePath = path.resolve(req.file.path);
+    console.log("📸 Image Path for Python:", imagePath);
+
     const organ = req.body.organ || 'leaf';
-    const filePath = req.file.path;
 
     // 1. PlantNet Identification
     console.time('PlantNet_API');
     console.log('Step 1: Calling PlantNet...');
-    const plantIdentity = await identifyPlant(filePath, organ);
+    const plantIdentity = await identifyPlant(imagePath, organ);
     console.timeEnd('PlantNet_API');
 
     if (!plantIdentity || !plantIdentity.success) {
       console.error("PlantNet Error:", plantIdentity?.message || "Unknown error");
-      // Fallback to "Unknown" if PlantNet fails, or throw?
-      // Let's fallback to "Unknown" to allow manual override or generic detection?
-      // The user prompt relies on plant name for logic.
-      // Let's throw for now as it seems critical.
+      // Critical error if identification fails
       throw new Error(`PlantNet Identification Failed: ${plantIdentity?.message}`);
     }
     console.log('PlantNet Result:', plantIdentity.plant_common);
@@ -1606,11 +1613,10 @@ app.post('/predict', upload.single('file'), async (req, res) => {
     console.time('Python_Inference');
     console.log('Step 2: Calling Python Inference Service...');
 
-    const imagePath = path.resolve(req.file.path);
     const reqId = crypto.randomUUID();
 
     const inferencePayload = {
-      image_path: imagePath,
+      image_path: imagePath, // Passing FULL PATH to Python
       id: reqId,
       plant_name: plantIdentity.plant_common
     };
