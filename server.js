@@ -35,6 +35,14 @@ const {
   fetchUserContext
 } = require('./user-context');
 
+// Import RAG Helpers
+const {
+  getLatestMandiPrices,
+  getActiveSchemes,
+  getCropHealthHistory,
+  getRecentActivities
+} = require('./ai-query-helper');
+
 // Initialize Google OAuth client
 const googleClient = new OAuth2Client(
   process.env.GOOGLE_CLIENT_ID,
@@ -205,6 +213,8 @@ let sessionsCollection;
 let userMemoriesCollection;
 let otpCollection;
 let userContextCollection;
+let schemesCollection;     // NEW: For government schemes
+let cropHealthCollection;  // NEW: For disease history
 
 const DEFAULT_MEMORY_SLICE = Number(process.env.AI_MEMORY_SLICE || 10);
 const MAX_MEMORY_ENTRIES = Number(process.env.AI_MEMORY_LIMIT || 200);
@@ -263,6 +273,8 @@ async function initializeCollections() {
     userMemoriesCollection = db.collection('user_memories');
     otpCollection = db.collection('otp_codes');
     userContextCollection = await initUserContextCollection(db);
+    schemesCollection = db.collection('schemes');         // NEW
+    cropHealthCollection = db.collection('crop_health');  // NEW
 
     await userMemoriesCollection.createIndex({ userKey: 1 }, { unique: true });
     await aiinteractionsCollection.createIndex({ userId: 1, timestamp: -1 });
@@ -1698,6 +1710,25 @@ app.post('/predict', upload.single('file'), async (req, res) => {
 
     console.timeEnd('TOTAL_REQUEST_TIME');
 
+    // Save to Database (RAG Memory)
+    if (cropHealthCollection) {
+      try {
+        const diagnosisRecord = {
+          farmerId: req.body.farmerId || 'anonymous',
+          timestamp: new Date(),
+          plant: plantIdentity?.plant_common || 'Unknown',
+          disease: diseaseResult?.disease_analysis?.disease_name || 'Unknown',
+          confidence: diseaseResult?.disease_analysis?.confidence || 0,
+          imagePath: imagePath,
+          aiSolution: aiSolution
+        };
+        await cropHealthCollection.insertOne(diagnosisRecord);
+        console.log('✅ Disease diagnosis saved to database.');
+      } catch (dbError) {
+        console.error('⚠️ Failed to save diagnosis to DB:', dbError.message);
+      }
+    }
+
     res.json({
       success: true,
       plant_identification: plantIdentity,
@@ -2218,6 +2249,48 @@ app.post('/ai/chat', authenticate, async (req, res) => {
     const userData = userContextPayload?.userData || {};
     const lastConversations = userContextPayload?.query || [];
 
+    // ---------------------------------------------------------
+    // RAG: Fetch Real-Time Context from 6 Features
+    // ---------------------------------------------------------
+    let ragContextData = {};
+    try {
+      const farmerLocation = userData?.location?.address || farmerProfile?.location || 'India';
+      const farmerCrops = farmerProfile?.crops || [];
+      const primaryCrop = farmerCrops.length > 0 ? farmerCrops[0] : null;
+
+      const [
+        schemes,
+        mandiPrices,
+        healthHistory,
+        activities
+      ] = await Promise.all([
+        getActiveSchemes(schemesCollection, farmerLocation),
+        getLatestMandiPrices(mandipricesCollection, primaryCrop, farmerLocation),
+        getCropHealthHistory(cropHealthCollection, farmerId || userIdentifier),
+        getRecentActivities(activitiesCollection, farmerId || userIdentifier)
+      ]);
+
+      // Add RAG context to the prompt
+      ragContextData = {
+        schemes: schemes.map(s => s.title),
+        mandi_prices: mandiPrices.map(p => `${p.crop}: ₹${p.price} (${p.location})`),
+        crop_health_issues: healthHistory.map(h => `${h.plant}: ${h.disease} (${h.timestamp})`),
+        recent_activities: activities.map(a => `${a.type}: ${a.description} (${a.date})`)
+      };
+
+      console.log('✅ RAG Context Injected:', {
+        schemes: schemes.length,
+        prices: mandiPrices.length,
+        health: healthHistory.length,
+        activities: activities.length
+      });
+
+    } catch (ragError) {
+      console.error('⚠️ RAG Context Injection Failed:', ragError.message);
+      ragContextData = { error: "Could not retrieve real-time data" };
+    }
+    // ---------------------------------------------------------
+
     // Format the LLM prompt with all user context
     const llmPrompt = {
       query: query,
@@ -2245,8 +2318,10 @@ app.post('/ai/chat', authenticate, async (req, res) => {
         phone: farmerProfile.phone,
         crops: farmerProfile.crops,
         land_size: farmerProfile.landSize
-      } : null
+      } : null,
+      context_data: ragContextData // Inject RAG data here
     };
+
 
     // Log the exact prompt that LLM will receive
     logger.info('LLM Prompt Generated', {
@@ -2264,7 +2339,9 @@ app.post('/ai/chat', authenticate, async (req, res) => {
             content: `You are KrushiMitra Orb, a helpful agricultural AI assistant for Indian farmers.
                               User Context: ${JSON.stringify(llmPrompt.user_data)}
                               User Profile: ${JSON.stringify(llmPrompt.farmer_profile)}
-                              Provide helpful, practical agricultural advice. Keep responses concise and friendly.
+                              Real-Time Data (RAG): ${JSON.stringify(llmPrompt.context_data)}
+                              Provide helpful, practical agricultural advice. Use the Real-Time RAG Data to be specific (prices, schemes, disease history).
+                              Keep responses concise and friendly.
                               If language is not English, respond in the requested language (${resolvedLanguage}).`
           },
           ...llmPrompt.last_5_conversations,
