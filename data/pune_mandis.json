@@ -1,0 +1,77 @@
+[
+    {
+        "name": "Gultekdi Market Yard (APMC)",
+        "lat": 18.4900,
+        "lon": 73.8700
+    },
+    {
+        "name": "Pimpri Sub-Market Yard",
+        "lat": 18.6229,
+        "lon": 73.8070
+    },
+    {
+        "name": "Moshi Market Yard",
+        "lat": 18.6623,
+        "lon": 73.8468
+    },
+    {
+        "name": "Chakan Market Yard",
+        "lat": 18.7561,
+        "lon": 73.8550
+    },
+    {
+        "name": "Manjari APMC Market",
+        "lat": 18.5140,
+        "lon": 73.9514
+    },
+    {
+        "name": "Mahatma Phule Mandai",
+        "lat": 18.5129,
+        "lon": 73.8562
+    },
+    {
+        "name": "Hadapsar Bhaji Mandai",
+        "lat": 18.5004,
+        "lon": 73.9340
+    },
+    {
+        "name": "Shivaji Bhaji Market",
+        "lat": 18.5240,
+        "lon": 73.8443
+    },
+    {
+        "name": "Khadki Old Bhaji Market",
+        "lat": 18.5615,
+        "lon": 73.8324
+    },
+    {
+        "name": "Bhosari Vegetable Market",
+        "lat": 18.6200,
+        "lon": 73.8400
+    },
+    {
+        "name": "Mundhwa Vegetable Market",
+        "lat": 18.5284,
+        "lon": 73.9234
+    },
+    {
+        "name": "Aundh Farmers Market",
+        "lat": 18.5631,
+        "lon": 73.8129
+    },
+    {
+        "name": "Kothrud Farmers Market",
+        "lat": 18.5011,
+        "lon": 73.8093
+    },
+    {
+        "name": "Wanowrie Farmers Market",
+        "lat": 18.4890,
+        "lon": 73.8960
+    },
+    {
+        "name": "Sinhgad Road Farmers Market",
+        "lat": 18.4795,
+        "lon": 73.8236
+    }
+]
