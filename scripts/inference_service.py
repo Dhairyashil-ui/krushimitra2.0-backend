@@ -92,13 +92,13 @@ def load_custom_mobilenet():
 print("🔄 Loading models once...", file=sys.stderr)
 
 try:
-    # 1. Load YOLO
-    yolo_full_path = os.path.join(BACKEND_ROOT, YOLO_MODEL_PATH)
-    if not os.path.exists(yolo_full_path):
-         yolo_full_path = YOLO_MODEL_PATH # fallback
+    # 1. Load YOLO (SKIPPED)
+    # yolo_full_path = os.path.join(BACKEND_ROOT, YOLO_MODEL_PATH)
+    # if not os.path.exists(yolo_full_path):
+    #      yolo_full_path = YOLO_MODEL_PATH # fallback
          
-    log_debug(f"Loading YOLO model from {yolo_full_path}...")
-    YOLO_MODEL = YOLO(yolo_full_path)
+    # log_debug(f"Loading YOLO model from {yolo_full_path}...")
+    YOLO_MODEL = None # YOLO(yolo_full_path)
 
     # 2. Load MobileNet
     MOBILENET_MODEL = load_custom_mobilenet()
@@ -147,10 +147,10 @@ def process_request(data):
                 }
             }
 
-        # STEP 1: YOLO Detection (Leaf presence)
-        yolo_start = time.time()
+        # STEP 1: YOLO Detection (SKIPPED)
+        # yolo_start = time.time()
         
-        # Read image to check size
+        # Read image
         img = cv2.imread(image_path)
         if img is None:
              log_error(f"Could not read image: {image_path}")
@@ -159,69 +159,15 @@ def process_request(data):
         h, w = img.shape[:2]
         log_info(f"Original Image Size: {w}x{h}")
         
-        # Resize if too large (YOLOv8n optimal is 640)
-        # We resize for inference, but keep aspect ratio
-        INPUT_SIZE = 640
-        if w > INPUT_SIZE or h > INPUT_SIZE:
-            scale = min(INPUT_SIZE/w, INPUT_SIZE/h)
-            new_w, new_h = int(w*scale), int(h*scale)
-            img_resized = cv2.resize(img, (new_w, new_h))
-            log_info(f"Resized for YOLO: {new_w}x{new_h}")
-            detections = YOLO_MODEL(img_resized, verbose=False)
-        else:
-            detections = YOLO_MODEL(img, verbose=False)
-            
-        log_info(f"YOLO Inference took {time.time() - yolo_start:.3f}s") 
+        # Skip YOLO and use full image
+        log_info("YOLO Inference SKIPPED (User Request)") 
         
-        best_box = None
-        max_area = 0
         detected_objects = []
-
-        if len(detections) > 0:
-            for box in detections[0].boxes:
-                cls = int(box.cls)
-                conf = float(box.conf)
-                xyxy = box.xyxy[0].cpu().numpy() 
-                w = xyxy[2] - xyxy[0]
-                h = xyxy[3] - xyxy[1]
-                area = w * h
-
-                detected_objects.append({
-                    "class": cls,
-                    "conf": conf,
-                    "box": box.xywh.tolist()[0]
-                })
-
-                if area > max_area:
-                    max_area = area
-                    best_box = xyxy
+        # Simulate full image as the "crop"
+        cropped_img_cv2 = img
         
-        results_data["leaf_detection"]["objects"] = len(detected_objects)
-        
-        original_img = cv2.imread(image_path) 
-        # Note: We reload original here if we need full res crop, or we could use the resized one. 
-        # For disease detection, higher res crop might be better, but let's stick to original for cropping.
-        
-        if original_img is None:
-             return {"success": False, "error": "Could not read image file", "id": request_id}
-
-        if best_box is not None:
-             # Scale box back to original size if we resized
-             if w > INPUT_SIZE or h > INPUT_SIZE:
-                 scale = min(INPUT_SIZE/w, INPUT_SIZE/h)
-                 best_box = best_box / scale
-                 
-             results_data["leaf_detection"]["detected"] = True
-             x1, y1, x2, y2 = map(int, best_box)
-             h_img, w_img = original_img.shape[:2]
-             x1, y1 = max(0, x1), max(0, y1)
-             x2, y2 = min(w_img, x2), min(h_img, y2)
-             if x2 > x1 and y2 > y1:
-                 cropped_img_cv2 = original_img[y1:y2, x1:x2]
-             else:
-                 cropped_img_cv2 = original_img
-        else:
-            cropped_img_cv2 = original_img
+        results_data["leaf_detection"]["objects"] = 1
+        results_data["leaf_detection"]["detected"] = True # Assume leaf is present
 
         # STEP 2: Custom MobileNet Classification
         mobilenet_start = time.time()
