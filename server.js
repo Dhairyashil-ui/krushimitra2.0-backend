@@ -43,6 +43,8 @@ const {
   getRecentActivities
 } = require('./ai-query-helper');
 
+const puneMandis = require('./data/pune_mandis.json'); // Static Pune Mandis List
+
 // Initialize Google OAuth client
 const googleClient = new OAuth2Client(
   process.env.GOOGLE_CLIENT_ID,
@@ -2071,6 +2073,63 @@ app.post('/mandiprices/update', authenticate, async (req, res) => {
         code: 'SERVER_ERROR',
         message: 'Error updating mandi prices'
       }
+    });
+  }
+});
+
+// GET /mandis/nearest - Find 5 nearest Pune mandis
+app.get('/mandis/nearest', authenticate, async (req, res) => {
+  const startTime = Date.now();
+  try {
+    const { lat, lon } = req.query;
+
+    if (!lat || !lon) {
+      return res.status(400).json({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Latitude and longitude are required'
+        }
+      });
+    }
+
+    const userLat = parseFloat(lat);
+    const userLon = parseFloat(lon);
+
+    // Filter and Sort by Distance (Haversine Formula)
+    const sortedMandis = puneMandis.map(mandi => {
+      const R = 6371; // Radius of the earth in km
+      const dLat = (mandi.lat - userLat) * (Math.PI / 180);
+      const dLon = (mandi.lon - userLon) * (Math.PI / 180);
+      const a =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(userLat * (Math.PI / 180)) * Math.cos(mandi.lat * (Math.PI / 180)) *
+        Math.sin(dLon / 2) * Math.sin(dLon / 2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      const d = R * c; // Distance in km
+
+      return { ...mandi, distanceKm: parseFloat(d.toFixed(2)) };
+    }).sort((a, b) => a.distanceKm - b.distanceKm);
+
+    const nearest = sortedMandis.slice(0, 5);
+
+    const duration = Date.now() - startTime;
+    logger.info('Nearest mandis calculated', {
+      userLat, userLon,
+      nearestCount: nearest.length,
+      nearest: nearest[0]?.name,
+      distance: nearest[0]?.distanceKm,
+      durationMs: duration
+    });
+
+    res.status(200).json({
+      status: 'success',
+      data: nearest
+    });
+
+  } catch (error) {
+    logger.error('Error finding nearest mandis', { error: error.message });
+    res.status(500).json({
+      error: { code: 'SERVER_ERROR', message: 'Error calculating nearest mandis' }
     });
   }
 });
