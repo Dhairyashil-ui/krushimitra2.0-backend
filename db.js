@@ -51,7 +51,7 @@ async function connectToDatabase(operationType = 'read', context = {}) {
   try {
     let client;
     let userDescription;
-    
+
     switch (operationType.toLowerCase()) {
       case 'write':
         client = writerClient;
@@ -67,13 +67,13 @@ async function connectToDatabase(operationType = 'read', context = {}) {
         userDescription = 'reader';
         break;
     }
-    
+
     // Connect the client to the server
     await client.connect();
-    
+
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
-    
+
     // Log successful connection
     const duration = Date.now() - startTime;
     logDBOperation('connect', {
@@ -83,9 +83,9 @@ async function connectToDatabase(operationType = 'read', context = {}) {
       status: 'success',
       ...context
     });
-    
+
     console.log(`Pinged your deployment. You successfully connected to MongoDB as ${userDescription} user!`);
-    
+
     return client;
   } catch (error) {
     const duration = Date.now() - startTime;
@@ -94,7 +94,7 @@ async function connectToDatabase(operationType = 'read', context = {}) {
       durationMs: duration,
       ...context
     });
-    
+
     console.error(`Error connecting to MongoDB as ${operationType} user:`, error);
     throw error;
   }
@@ -105,16 +105,16 @@ async function getDatabaseInfo(context = {}) {
   try {
     const client = await connectToDatabase('admin', context);
     const db = client.db("KrushiMitraDB");
-    
+
     // Get server info
     const adminDb = client.db("admin");
     const serverStatus = await adminDb.command({ serverStatus: 1 });
     const buildInfo = await adminDb.command({ buildInfo: 1 });
-    
+
     // Get collections
     const collections = await db.listCollections().toArray();
     const collectionNames = collections.map(collection => collection.name);
-    
+
     // Log operation
     const duration = Date.now() - startTime;
     logDBOperation('getDatabaseInfo', {
@@ -123,7 +123,7 @@ async function getDatabaseInfo(context = {}) {
       collectionsCount: collectionNames.length,
       ...context
     });
-    
+
     return {
       status: "CONNECTED",
       serverInfo: {
@@ -138,7 +138,7 @@ async function getDatabaseInfo(context = {}) {
       durationMs: duration,
       ...context
     });
-    
+
     return {
       status: "ERROR_CONNECT",
       message: error.message
@@ -155,36 +155,36 @@ async function getDatabaseInfo(context = {}) {
 
 async function ensureCollections(context = {}) {
   const requiredCollections = [
-    'farmers', 
-    'activities', 
-    'mandiprices', 
-    'schemes', 
-    'aiinteractions', 
-    'crop_health', 
+    'farmers',
+    'activities',
+    'mandiprices',
+    'schemes',
+    'aiinteractions',
+    'crop_health',
     'alerts'
   ];
-  
+
   const startTime = Date.now();
   try {
     const client = await connectToDatabase('admin', context);
     const db = client.db("KrushiMitraDB");
-    
+
     // Get existing collections
     const collections = await db.listCollections().toArray();
     const existingCollectionNames = collections.map(collection => collection.name);
-    
+
     // Find missing collections
     const missingCollections = requiredCollections.filter(
       collection => !existingCollectionNames.includes(collection)
     );
-    
+
     // Create missing collections
     const createdCollections = [];
     for (const collectionName of missingCollections) {
       await db.createCollection(collectionName);
       createdCollections.push(collectionName);
     }
-    
+
     // Log operation
     const duration = Date.now() - startTime;
     logDBOperation('ensureCollections', {
@@ -195,7 +195,7 @@ async function ensureCollections(context = {}) {
       collectionsCount: existingCollectionNames.concat(createdCollections).length,
       ...context
     });
-    
+
     // Return status
     return {
       status: "COLLECTIONS_OK",
@@ -208,7 +208,7 @@ async function ensureCollections(context = {}) {
       durationMs: duration,
       ...context
     });
-    
+
     return {
       status: "ERROR_CONNECT",
       message: error.message
@@ -228,34 +228,34 @@ async function createIndexes(context = {}) {
   try {
     const client = await connectToDatabase('admin', context);
     const db = client.db("KrushiMitraDB");
-    
+
     const indexesCreated = [];
-    
+
     // 1. Unique index on farmers.phone
     const farmersCollection = db.collection('farmers');
     await farmersCollection.createIndex({ phone: 1 }, { unique: true });
     indexesCreated.push('farmers.phone_unique');
-    
+
     // 2. Index on activities.farmerId and activities.date (compound)
     const activitiesCollection = db.collection('activities');
     await activitiesCollection.createIndex({ farmerId: 1, date: 1 });
     indexesCreated.push('activities.farmerId_date');
-    
+
     // 3. Index on mandiprices for (crop, location, date) descending by date
     const mandipricesCollection = db.collection('mandiprices');
     await mandipricesCollection.createIndex({ crop: 1, location: 1, date: -1 });
     indexesCreated.push('mandiprices.crop_location_date_desc');
-    
+
     // 4. Index on aiinteractions.farmerId and aiinteractions.timestamp
     const aiinteractionsCollection = db.collection('aiinteractions');
     await aiinteractionsCollection.createIndex({ farmerId: 1, timestamp: 1 });
     indexesCreated.push('aiinteractions.farmerId_timestamp');
-    
+
     // 5. Index on alerts.farmerId and alerts.status
     const alertsCollection = db.collection('alerts');
     await alertsCollection.createIndex({ farmerId: 1, status: 1 });
     indexesCreated.push('alerts.farmerId_status');
-    
+
     // Log operation
     const duration = Date.now() - startTime;
     logDBOperation('createIndexes', {
@@ -265,7 +265,7 @@ async function createIndexes(context = {}) {
       indexesCount: indexesCreated.length,
       ...context
     });
-    
+
     return {
       status: "INDEXES_CREATED",
       indexesCreated: indexesCreated
@@ -276,7 +276,7 @@ async function createIndexes(context = {}) {
       durationMs: duration,
       ...context
     });
-    
+
     return {
       status: "ERROR_CONNECT",
       message: error.message
