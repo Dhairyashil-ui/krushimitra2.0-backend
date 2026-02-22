@@ -1,4 +1,5 @@
 ultralytics
+tensorflow
 opencv-python
 numpy
 requests

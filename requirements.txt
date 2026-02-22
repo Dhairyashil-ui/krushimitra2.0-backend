@@ -1,6 +1,5 @@
 ultralytics==8.3.70
-torch==2.1.2
-torchvision==0.16.2
+tensorflow>=2.15.0
 opencv-python-headless==4.9.0.80
 numpy==1.26.4
 Pillow==10.2.0
