@@ -4,20 +4,22 @@ import os
 import io
 import contextlib
 import time
+import os
 
 # Suppress standard logs immediately
 os.environ["YOLO_VERBOSE"] = "False"
-os.environ["TF_USE_LEGACY_KERAS"] = "1"
-
 import matplotlib
 matplotlib.use('Agg') # Force headless backend
 
 # Heavy imports moved to top for initialization
 try:
     import cv2
-    import numpy as np
+    import torch
+    from torch import nn
+    from torchvision import models
     from PIL import Image
-    import tensorflow as tf
+    import numpy as np
+    from ultralytics import YOLO
 except ImportError as e:
     sys.stderr.write(f"ERROR: Missing AI dependencies: {e}\n")
     sys.exit(1)
@@ -39,36 +41,45 @@ def log_info(msg):
 MODELS_DIR = os.path.dirname(os.path.abspath(__file__)) 
 BACKEND_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 YOLO_MODEL_PATH = "yolov8n.pt" 
-CUSTOM_MODEL_PATH = os.path.join(BACKEND_ROOT, "agrimater_model2.h5")
+CUSTOM_MODEL_PATH = os.path.join(BACKEND_ROOT, "leaf_disease_mobilenet.pth")
 
-# Custom Classes (38 from plant village)
+# Custom Classes
 CLASSES = [
-    "Apple_scab", "Apple_black_rot", "Apple_cedar_apple_rust", "Apple_healthy",
-    "Blueberry_healthy", "Cherry_powdery_mildew", "Cherry_healthy",
-    "Corn_gray_leaf_spot", "Corn_common_rust", "Corn_northern_leaf_blight", "Corn_healthy",
-    "Grape_black_rot", "Grape_black_measles", "Grape_leaf_blight", "Grape_healthy",
-    "Orange_haunglongbing", "Peach_bacterial_spot", "Peach_healthy",
-    "Pepper_bacterial_spot", "Pepper_healthy", "Potato_early_blight",
-    "Potato_late_blight", "Potato_healthy", "Raspberry_healthy",
-    "Soybean_healthy", "Squash_powdery_mildew", "Strawberry_healthy",
-    "Strawberry_leaf_scorch", "Tomato_bacterial_spot", "Tomato_early_blight",
-    "Tomato_late_blight", "Tomato_leaf_mold", "Tomato_septoria_leaf_spot",
-    "Tomato_spider_mites", "Tomato_target_spot", "Tomato_yellow_leaf_curl_virus",
-    "Tomato_mosaic_virus", "Tomato_healthy"
+    "Tomato - Healthy",
+    "Tomato - Early Blight",
+    "Tomato - Late Blight",
+    "Tomato - Leaf Mold"
 ]
+
+# Global Preprocess placeholder
+mobilenet_preprocess = None
 
 # Helper function to load MobileNet
 def load_custom_mobilenet():
-    """Loads and configures the MobileNetV3 model in Keras."""
+    """Loads and configures the MobileNetV3 model."""
+    global mobilenet_preprocess
     try:
-        log_debug(f"Loading Custom MobileNetV3 Keras model from {CUSTOM_MODEL_PATH}...")
+        log_debug(f"Loading Custom MobileNetV3 model from {CUSTOM_MODEL_PATH}...")
         
-        if not os.path.exists(CUSTOM_MODEL_PATH):
+        # Initialize model structure
+        model = models.mobilenet_v3_large(pretrained=False)
+        
+        # Modify classifier head to match training (4 classes)
+        model.classifier[3] = nn.Linear(1280, len(CLASSES))
+        
+        # Load Weights
+        if os.path.exists(CUSTOM_MODEL_PATH):
+            state_dict = torch.load(CUSTOM_MODEL_PATH, map_location="cpu")
+            model.load_state_dict(state_dict)
+            model.eval()
+            log_debug("Custom MobileNet loaded successfully.")
+        else:
             log_error(f"Custom model not found at {CUSTOM_MODEL_PATH}")
             sys.exit(1)
-            
-        model = tf.keras.models.load_model(CUSTOM_MODEL_PATH, compile=False)
-        log_debug("Custom MobileNet Keras model loaded successfully.")
+
+        # Standard MobileNet Preprocessing
+        weights = models.MobileNet_V3_Large_Weights.DEFAULT
+        mobilenet_preprocess = weights.transforms()
         
         return model
     except Exception as e:
@@ -82,7 +93,12 @@ print("🔄 Loading models once...", file=sys.stderr)
 
 try:
     # 1. Load YOLO (SKIPPED)
-    YOLO_MODEL = None
+    # yolo_full_path = os.path.join(BACKEND_ROOT, YOLO_MODEL_PATH)
+    # if not os.path.exists(yolo_full_path):
+    #      yolo_full_path = YOLO_MODEL_PATH # fallback
+         
+    # log_debug(f"Loading YOLO model from {yolo_full_path}...")
+    YOLO_MODEL = None # YOLO(yolo_full_path)
 
     # 2. Load MobileNet
     MOBILENET_MODEL = load_custom_mobilenet()
@@ -112,10 +128,28 @@ def process_request(data):
         "id": request_id, 
         "success": True,
         "leaf_detection": {"detected": False, "objects": 0, "model": "YOLOv8n"},
-        "disease_analysis": {"disease_name": "Unknown", "confidence": 0.0, "model": "Local-MobileNetV3 (Keras)"}
+        "disease_analysis": {"disease_name": "Unknown", "confidence": 0.0, "model": "Local-MobileNetV3"}
     }
     
     try:
+        # GUARD: CROP MODEL SELECTION
+        plant_name = data.get("plant_name", "tomato").lower()
+        
+        if "mango" in plant_name:
+            return {
+                "success": True,
+                "id": request_id,
+                "leaf_detection": {"detected": False, "objects": 0, "model": "None"},
+                "disease_analysis": {
+                    "disease_name": "Model under training",
+                    "confidence": 1.0,
+                    "model": "Future-Mango-Net"
+                }
+            }
+
+        # STEP 1: YOLO Detection (SKIPPED)
+        # yolo_start = time.time()
+        
         # Read image
         img = cv2.imread(image_path)
         if img is None:
@@ -128,6 +162,7 @@ def process_request(data):
         # Skip YOLO and use full image
         log_info("YOLO Inference SKIPPED (User Request)") 
         
+        detected_objects = []
         # Simulate full image as the "crop"
         cropped_img_cv2 = img
         
@@ -155,21 +190,21 @@ def mobilenet_predict(model, cv2_image):
     if cv2_image is None:
         return {"disease_name": "Error", "confidence": 0.0, "status": "No Image"}
 
-    # The user mentioned Input Image Size: 160 x 160
     img_rgb = cv2.cvtColor(cv2_image, cv2.COLOR_BGR2RGB)
-    img_resized = cv2.resize(img_rgb, (160, 160))
+    pil_img = Image.fromarray(img_rgb)
     
-    # Preprocess
-    img_array = np.array(img_resized, dtype=np.float32)
-    # Applying standard MobileNetV3 preprocessing (tf.keras.applications.mobilenet_v3.preprocess_input)
-    img_preprocessed = tf.keras.applications.mobilenet_v3.preprocess_input(img_array)
-    input_batch = np.expand_dims(img_preprocessed, axis=0)
+    # Global preprocess
+    input_tensor = mobilenet_preprocess(pil_img)
+    input_batch = input_tensor.unsqueeze(0)
 
-    # Inference
-    probabilities = model.predict(input_batch, verbose=0)[0]
+    with torch.no_grad():
+        output = model(input_batch)
     
-    class_idx = np.argmax(probabilities)
-    confidence = float(probabilities[class_idx])
+    probabilities = torch.nn.functional.softmax(output[0], dim=0)
+    top_prob, top_catid = torch.topk(probabilities, 1)
+    
+    confidence = top_prob[0].item()
+    class_idx = top_catid[0].item()
     
     if 0 <= class_idx < len(CLASSES):
         category_name = CLASSES[class_idx]

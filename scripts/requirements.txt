@@ -1,5 +1,4 @@
 ultralytics
-tensorflow<2.16.0
 opencv-python
 numpy
 requests

@@ -12,8 +12,6 @@ logger = logging.getLogger('CropService')
 
 # Suppress logs and GUI
 os.environ["YOLO_VERBOSE"] = "False"
-os.environ["TF_USE_LEGACY_KERAS"] = "1"
-
 import matplotlib
 matplotlib.use('Agg') # Force headless backend
 
@@ -34,6 +32,8 @@ app = Flask(__name__)
 # Global variables for models
 yolo_model = None
 mobilenet_model = None
+mobilenet_weights = None
+mobilenet_preprocess = None
 
 # Import libraries lazily or at module level? 
 # For a persistent service, module level is fine, but we'll load models in a function to handle errors gracefully.
@@ -41,34 +41,27 @@ try:
     logger.info("Importing ML libraries...")
     from ultralytics import YOLO
     import cv2
+    import torch
+    from torchvision import models, transforms
     from PIL import Image
-    import tensorflow as tf
     logger.info("Libraries imported successfully.")
 except ImportError as e:
     logger.error(f"Missing dependencies: {e}")
     sys.exit(1)
 
-# Custom Classes (38 from plant village)
+# Custom Classes
 CLASSES = [
-    "Apple_scab", "Apple_black_rot", "Apple_cedar_apple_rust", "Apple_healthy",
-    "Blueberry_healthy", "Cherry_powdery_mildew", "Cherry_healthy",
-    "Corn_gray_leaf_spot", "Corn_common_rust", "Corn_northern_leaf_blight", "Corn_healthy",
-    "Grape_black_rot", "Grape_black_measles", "Grape_leaf_blight", "Grape_healthy",
-    "Orange_haunglongbing", "Peach_bacterial_spot", "Peach_healthy",
-    "Pepper_bacterial_spot", "Pepper_healthy", "Potato_early_blight",
-    "Potato_late_blight", "Potato_healthy", "Raspberry_healthy",
-    "Soybean_healthy", "Squash_powdery_mildew", "Strawberry_healthy",
-    "Strawberry_leaf_scorch", "Tomato_bacterial_spot", "Tomato_early_blight",
-    "Tomato_late_blight", "Tomato_leaf_mold", "Tomato_septoria_leaf_spot",
-    "Tomato_spider_mites", "Tomato_target_spot", "Tomato_yellow_leaf_curl_virus",
-    "Tomato_mosaic_virus", "Tomato_healthy"
+    "Tomato - Healthy",
+    "Tomato - Early Blight",
+    "Tomato - Late Blight",
+    "Tomato - Leaf Mold"
 ]
 
 # Define Custom Model Path
-CUSTOM_MODEL_PATH = os.path.join(BASE_DIR, "agrimater_model2.h5")
+CUSTOM_MODEL_PATH = os.path.join(BASE_DIR, "leaf_disease_mobilenet.pth")
 
 def load_models():
-    global yolo_model, mobilenet_model
+    global yolo_model, mobilenet_model, mobilenet_weights, mobilenet_preprocess
     
     try:
         # Load YOLO Model
@@ -77,15 +70,31 @@ def load_models():
         logger.info("YOLO model loaded.")
         
         # Load Custom MobileNetV3 Model
-        logger.info(f"Loading Custom MobileNetV3 Keras model from {CUSTOM_MODEL_PATH}...")
+        logger.info(f"Loading Custom MobileNetV3 model from {CUSTOM_MODEL_PATH}...")
         
+        # Initialize model structure
+        mobilenet_model = models.mobilenet_v3_large(weights=None) # No pretrained weights initially
+        
+        # Modify classifier head to match training (4 classes)
+        from torch import nn
+        mobilenet_model.classifier[3] = nn.Linear(1280, len(CLASSES))
+        
+        # Load Weights
         if os.path.exists(CUSTOM_MODEL_PATH):
-            mobilenet_model = tf.keras.models.load_model(CUSTOM_MODEL_PATH, compile=False)
-            logger.info("Custom MobileNet Keras model loaded successfully.")
+            state_dict = torch.load(CUSTOM_MODEL_PATH, map_location="cpu")
+            mobilenet_model.load_state_dict(state_dict)
+            mobilenet_model.eval()
+            logger.info("Custom MobileNet loaded successfully.")
         else:
             logger.error(f"Custom model not found at {CUSTOM_MODEL_PATH}")
             return False
 
+        # Standard MobileNet Preprocessing
+        # We can use the default transforms from the weights class even if we don't load the weights
+        weights = models.MobileNet_V3_Large_Weights.DEFAULT
+        mobilenet_preprocess = weights.transforms()
+        mobilenet_weights = weights # Keep for metadata if needed, though we use custom classes
+        
         return True
     except Exception as e:
         logger.error(f"Error loading models: {e}")
@@ -118,7 +127,7 @@ def analyze_image():
         "disease_analysis": {
             "disease": "Unknown",
             "confidence": 0.0,
-            "model": "MobileNetV3 (Keras)"
+            "model": "MobileNetV3 (Pretrained ImageNet)"
         }
     }
 
@@ -182,20 +191,23 @@ def analyze_image():
     # Step 2: MobileNetV3 Classification
     if cropped_img_cv2 is not None:
         try:
-            # Resize appropriately
+            # Convert CV2 (BGR) to PIL (RGB)
             img_rgb = cv2.cvtColor(cropped_img_cv2, cv2.COLOR_BGR2RGB)
-            img_resized = cv2.resize(img_rgb, (160, 160))
+            pil_img = Image.fromarray(img_rgb)
 
-            # Preprocess
-            img_array = np.array(img_resized, dtype=np.float32)
-            img_preprocessed = tf.keras.applications.mobilenet_v3.preprocess_input(img_array)
-            input_batch = np.expand_dims(img_preprocessed, axis=0)
+            # Transform
+            input_tensor = mobilenet_preprocess(pil_img)
+            input_batch = input_tensor.unsqueeze(0)
 
             # Inference
-            probabilities = mobilenet_model.predict(input_batch, verbose=0)[0]
+            with torch.no_grad():
+                output = mobilenet_model(input_batch)
             
-            class_idx = np.argmax(probabilities)
-            confidence = float(probabilities[class_idx])
+            probabilities = torch.nn.functional.softmax(output[0], dim=0)
+            top_prob, top_catid = torch.topk(probabilities, 1)
+            
+            confidence = top_prob[0].item()
+            class_idx = top_catid[0].item()
             
             if 0 <= class_idx < len(CLASSES):
                 category_name = CLASSES[class_idx]
