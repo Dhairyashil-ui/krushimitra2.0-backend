@@ -12,6 +12,8 @@ logger = logging.getLogger('CropService')
 
 # Suppress logs and GUI
 os.environ["YOLO_VERBOSE"] = "False"
+os.environ["TF_USE_LEGACY_KERAS"] = "1"
+
 import matplotlib
 matplotlib.use('Agg') # Force headless backend
 

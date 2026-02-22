@@ -7,6 +7,8 @@ import time
 
 # Suppress standard logs immediately
 os.environ["YOLO_VERBOSE"] = "False"
+os.environ["TF_USE_LEGACY_KERAS"] = "1"
+
 import matplotlib
 matplotlib.use('Agg') # Force headless backend
 
