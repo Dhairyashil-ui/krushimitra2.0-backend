@@ -142,17 +142,23 @@ def process_request(data):
         "disease_analysis": {"disease_name": "Unknown", "confidence": 0.0, "model": "TensorFlow-MobileNet-H5"}
     }
     
-    # GUARD: UNSUPPORTED CROP CHECK
     plant_name = data.get("plant_name", "Unknown Plant").lower()
+    
+    # Extract the base crop name for filtering (e.g., "apple" from "cut-leaf crab apple")
+    detected_base_crop = "Unknown"
     supported_crops = [
         "apple", "blueberry", "cherry", "corn", "grape", "orange", 
         "peach", "pepper", "potato", "raspberry", "soybean", "squash", 
         "strawberry", "tomato"
     ]
     
-    is_supported = any(crop in plant_name for crop in supported_crops)
+    for crop in supported_crops:
+        if crop in plant_name:
+            detected_base_crop = crop
+            break
     
-    if not is_supported and plant_name != "unknown plant":
+    # GUARD: UNSUPPORTED CROP CHECK
+    if detected_base_crop == "Unknown" and plant_name != "unknown plant":
         log_info(f"Crop '{plant_name}' is not in the 38-class MobileNet dataset. Bypassing ML.")
         results_data["disease_analysis"] = {
             "disease_name": f"{plant_name.title()} - Disease models under training",
@@ -176,7 +182,7 @@ def process_request(data):
 
         # Custom MobileNet Classification
         mobilenet_start = time.time()
-        disease_info = mobilenet_predict(MOBILENET_MODEL, img)
+        disease_info = mobilenet_predict(MOBILENET_MODEL, img, detected_base_crop)
         log_info(f"MobileNet Inference took {time.time() - mobilenet_start:.3f}s")
         log_info(f"Total Logic Time: {time.time() - start_ts:.3f}s")
         results_data["disease_analysis"].update(disease_info)
@@ -187,9 +193,11 @@ def process_request(data):
 
     return results_data
 
-def mobilenet_predict(model, cv2_image):
+def mobilenet_predict(model, cv2_image, crop_filter="Unknown"):
     """
     Runs TensorFlow MobileNet inference on a CV2 image (numpy array).
+    Filters the output classes to match the detected crop_filter to prevent hallucinating 
+    a tomato disease on an apple leaf.
     Returns a dictionary with disease, confidence, and raw_classification.
     """
     if cv2_image is None:
@@ -212,9 +220,36 @@ def mobilenet_predict(model, cv2_image):
         preds = model.predict(input_batch, verbose=0)
         probabilities = preds[0]
         
-        class_idx = int(np.argmax(probabilities))
-        confidence = float(probabilities[class_idx])
+        # Crop specific filtering!
+        valid_indices = []
+        if crop_filter != "Unknown":
+            # e.g., if crop_filter is "apple", look for classes starting with "Apple___"
+            # special cases: "cherry" -> "Cherry_(including_sour)___", "corn" -> "Corn_(maize)___"
+            # "pepper" -> "Pepper,_bell___"
+            
+            # Create a flexible string matching (lowercase check)
+            for idx, cls_name in IDX_TO_CLASS.items():
+                cls_lower = cls_name.lower()
+                if crop_filter in cls_lower:
+                    valid_indices.append(idx)
         
+        # If we successfully found valid crop indices, restrict argmax to ONLY those indices
+        if valid_indices:
+            # Find the best class index ONLY among valid_indices
+            best_idx = valid_indices[0]
+            best_prob = probabilities[best_idx]
+            for idx in valid_indices:
+                if probabilities[idx] > best_prob:
+                    best_prob = probabilities[idx]
+                    best_idx = idx
+            
+            class_idx = best_idx
+            confidence = float(best_prob)
+        else:
+            # Fallback to absolute argmax if filtering completely failed
+            class_idx = int(np.argmax(probabilities))
+            confidence = float(probabilities[class_idx])
+            
         category_name = IDX_TO_CLASS.get(class_idx, "Unknown")
 
         # Format category name nicely to show crop and condition
