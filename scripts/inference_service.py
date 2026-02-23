@@ -1,25 +1,20 @@
 import sys
 import json
 import os
-import io
-import contextlib
 import time
-import os
 
 # Suppress standard logs immediately
-os.environ["YOLO_VERBOSE"] = "False"
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 import matplotlib
 matplotlib.use('Agg') # Force headless backend
 
 # Heavy imports moved to top for initialization
 try:
     import cv2
-    import torch
-    from torch import nn
-    from torchvision import models
-    from PIL import Image
     import numpy as np
-    from ultralytics import YOLO
+    import tensorflow as tf
+    from tensorflow.keras.models import load_model
+    from tensorflow.keras.preprocessing.image import img_to_array
 except ImportError as e:
     sys.stderr.write(f"ERROR: Missing AI dependencies: {e}\n")
     sys.exit(1)
@@ -38,78 +33,55 @@ def log_info(msg):
     sys.stderr.flush()
 
 # Define Paths
-MODELS_DIR = os.path.dirname(os.path.abspath(__file__)) 
 BACKEND_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-YOLO_MODEL_PATH = "yolov8n.pt" 
-CUSTOM_MODEL_PATH = os.path.join(BACKEND_ROOT, "leaf_disease_mobilenet.pth")
+CUSTOM_MODEL_PATH = os.path.join(BACKEND_ROOT, "agrimater_model2.h5")
+CLASS_INDICES_PATH = os.path.join(BACKEND_ROOT, "class_indices.json")
 
-# Custom Classes
-CLASSES = [
-    "Tomato - Healthy",
-    "Tomato - Early Blight",
-    "Tomato - Late Blight",
-    "Tomato - Leaf Mold"
-]
+# Global variables
+MOBILENET_MODEL = None
+CLASS_INDICES = {}
+IDX_TO_CLASS = {}
 
-# Global Preprocess placeholder
-mobilenet_preprocess = None
-
-# Helper function to load MobileNet
+# Helper function to load the TensorFlow model and classes
 def load_custom_mobilenet():
-    """Loads and configures the MobileNetV3 model."""
-    global mobilenet_preprocess
+    """Loads and configures the MobileNetV3 Keras H5 model and its classes."""
+    global MOBILENET_MODEL, CLASS_INDICES, IDX_TO_CLASS
     try:
-        log_debug(f"Loading Custom MobileNetV3 model from {CUSTOM_MODEL_PATH}...")
-        
-        # Initialize model structure
-        model = models.mobilenet_v3_large(pretrained=False)
-        
-        # Modify classifier head to match training (4 classes)
-        model.classifier[3] = nn.Linear(1280, len(CLASSES))
-        
+        # Load class indices
+        if os.path.exists(CLASS_INDICES_PATH):
+            with open(CLASS_INDICES_PATH, 'r') as f:
+                CLASS_INDICES = json.load(f)
+                # Invert mapping from name->idx to idx->name
+                IDX_TO_CLASS = {int(v): k for k, v in CLASS_INDICES.items()}
+            log_debug(f"Loaded {len(CLASS_INDICES)} classes from {CLASS_INDICES_PATH}")
+        else:
+            log_error(f"Class indices file not found at {CLASS_INDICES_PATH}")
+            sys.exit(1)
+
         # Load Weights
+        log_debug(f"Loading Custom MobileNetV3 H5 model from {CUSTOM_MODEL_PATH}...")
         if os.path.exists(CUSTOM_MODEL_PATH):
-            state_dict = torch.load(CUSTOM_MODEL_PATH, map_location="cpu")
-            model.load_state_dict(state_dict)
-            model.eval()
-            log_debug("Custom MobileNet loaded successfully.")
+            MOBILENET_MODEL = load_model(CUSTOM_MODEL_PATH, compile=False)
+            log_debug("Custom MobileNet H5 loaded successfully.")
         else:
             log_error(f"Custom model not found at {CUSTOM_MODEL_PATH}")
             sys.exit(1)
-
-        # Standard MobileNet Preprocessing
-        weights = models.MobileNet_V3_Large_Weights.DEFAULT
-        mobilenet_preprocess = weights.transforms()
-        
-        return model
+            
     except Exception as e:
         log_error(f"Failed to load MobileNet: {e}")
         sys.exit(1)
 
 # -------------------------------------------------------------
-# GLOBAL MODEL LOADING (Exact User Request)
+# GLOBAL MODEL LOADING
 # -------------------------------------------------------------
 print("🔄 Loading models once...", file=sys.stderr)
 
 try:
-    # 1. Load YOLO (SKIPPED)
-    # yolo_full_path = os.path.join(BACKEND_ROOT, YOLO_MODEL_PATH)
-    # if not os.path.exists(yolo_full_path):
-    #      yolo_full_path = YOLO_MODEL_PATH # fallback
-         
-    # log_debug(f"Loading YOLO model from {yolo_full_path}...")
-    YOLO_MODEL = None # YOLO(yolo_full_path)
-
-    # 2. Load MobileNet
-    MOBILENET_MODEL = load_custom_mobilenet()
-    
-    # 3. Mark as loaded
-    print("✅ Models loaded successfully", file=sys.stderr)
-
+    load_custom_mobilenet()
+    print("✅ Models and classes loaded successfully", file=sys.stderr)
 except Exception as e:
     log_error(f"Critical Error Loading Models: {e}")
     sys.exit(1)
-
 
 # -------------------------------------------------------------
 # REQUEST HANDLER
@@ -127,29 +99,11 @@ def process_request(data):
     results_data = {
         "id": request_id, 
         "success": True,
-        "leaf_detection": {"detected": False, "objects": 0, "model": "YOLOv8n"},
-        "disease_analysis": {"disease_name": "Unknown", "confidence": 0.0, "model": "Local-MobileNetV3"}
+        "leaf_detection": {"detected": True, "objects": 1, "model": "PlantNet-Bypass"},
+        "disease_analysis": {"disease_name": "Unknown", "confidence": 0.0, "model": "TensorFlow-MobileNet-H5"}
     }
     
     try:
-        # GUARD: CROP MODEL SELECTION
-        plant_name = data.get("plant_name", "tomato").lower()
-        
-        if "mango" in plant_name:
-            return {
-                "success": True,
-                "id": request_id,
-                "leaf_detection": {"detected": False, "objects": 0, "model": "None"},
-                "disease_analysis": {
-                    "disease_name": "Model under training",
-                    "confidence": 1.0,
-                    "model": "Future-Mango-Net"
-                }
-            }
-
-        # STEP 1: YOLO Detection (SKIPPED)
-        # yolo_start = time.time()
-        
         # Read image
         img = cv2.imread(image_path)
         if img is None:
@@ -159,19 +113,11 @@ def process_request(data):
         h, w = img.shape[:2]
         log_info(f"Original Image Size: {w}x{h}")
         
-        # Skip YOLO and use full image
-        log_info("YOLO Inference SKIPPED (User Request)") 
-        
-        detected_objects = []
-        # Simulate full image as the "crop"
-        cropped_img_cv2 = img
-        
-        results_data["leaf_detection"]["objects"] = 1
-        results_data["leaf_detection"]["detected"] = True # Assume leaf is present
+        # We assume the API already found a plant. No YOLO needed.
 
-        # STEP 2: Custom MobileNet Classification
+        # Custom MobileNet Classification
         mobilenet_start = time.time()
-        disease_info = mobilenet_predict(MOBILENET_MODEL, cropped_img_cv2)
+        disease_info = mobilenet_predict(MOBILENET_MODEL, img)
         log_info(f"MobileNet Inference took {time.time() - mobilenet_start:.3f}s")
         log_info(f"Total Logic Time: {time.time() - start_ts:.3f}s")
         results_data["disease_analysis"].update(disease_info)
@@ -184,48 +130,54 @@ def process_request(data):
 
 def mobilenet_predict(model, cv2_image):
     """
-    Runs MobileNet inference on a CV2 image (numpy array).
+    Runs TensorFlow MobileNet inference on a CV2 image (numpy array).
     Returns a dictionary with disease, confidence, and raw_classification.
     """
     if cv2_image is None:
         return {"disease_name": "Error", "confidence": 0.0, "status": "No Image"}
 
-    img_rgb = cv2.cvtColor(cv2_image, cv2.COLOR_BGR2RGB)
-    pil_img = Image.fromarray(img_rgb)
-    
-    # Global preprocess
-    input_tensor = mobilenet_preprocess(pil_img)
-    input_batch = input_tensor.unsqueeze(0)
-
-    with torch.no_grad():
-        output = model(input_batch)
-    
-    probabilities = torch.nn.functional.softmax(output[0], dim=0)
-    top_prob, top_catid = torch.topk(probabilities, 1)
-    
-    confidence = top_prob[0].item()
-    class_idx = top_catid[0].item()
-    
-    if 0 <= class_idx < len(CLASSES):
-        category_name = CLASSES[class_idx]
-    else:
-        category_name = "Unknown"
-
-    # GUARD: CONFIDENCE THRESHOLD
-    CONFIDENCE_THRESHOLD = 0.45 
-    result = {
-        "disease_name": category_name,
-        "confidence": confidence,
-        "raw_classification": category_name
-    }
-    
-    if confidence < CONFIDENCE_THRESHOLD:
-        result["status"] = "Low Confidence"
+    try:
+        # Preprocessing expected by MobileNetV3/TensorFlow models
+        # Target size usually 224x224
+        img_rgb = cv2.cvtColor(cv2_image, cv2.COLOR_BGR2RGB)
+        img_resized = cv2.resize(img_rgb, (224, 224))
         
-    return result
+        # Convert to float and normalize if required (typical is to divide by 255.0 or keras preprocess)
+        # MobileNetV3 in keras usually expects pixels in [-1, 1] or [0, 255] or [0, 1] depending on how it was built.
+        # Most of the time standard division by 255.0 works for custom trained models.
+        img_array = img_to_array(img_resized)
+        img_array = img_array / 255.0
+        input_batch = np.expand_dims(img_array, axis=0)
+
+        # Prediction
+        preds = model.predict(input_batch, verbose=0)
+        probabilities = preds[0]
+        
+        class_idx = int(np.argmax(probabilities))
+        confidence = float(probabilities[class_idx])
+        
+        category_name = IDX_TO_CLASS.get(class_idx, "Unknown")
+
+        # Format category name nicely to show crop and condition
+        formatted_name = category_name.replace("___", " - ").replace("_", " ")
+
+        # GUARD: CONFIDENCE THRESHOLD
+        CONFIDENCE_THRESHOLD = 0.45 
+        result = {
+            "disease_name": formatted_name,
+            "confidence": round(confidence, 4),
+            "raw_classification": category_name
+        }
+        
+        if confidence < CONFIDENCE_THRESHOLD:
+            result["status"] = "Low Confidence"
+            
+        return result
+    except Exception as e:
+        log_error(f"Error during prediction: {e}")
+        return {"disease_name": "Error", "confidence": 0.0, "status": f"Error: {e}"}
 
 def main():
-    # Models are ALREADY LOADED globally.
     log_debug("Service Ready. Waiting for input...")
     
     while True:

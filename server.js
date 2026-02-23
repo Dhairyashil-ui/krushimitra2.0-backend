@@ -1737,8 +1737,7 @@ app.post('/predict', upload.single('file'), async (req, res) => {
       disease_detection: {
         disease: diseaseResult?.disease_analysis?.disease_name || "Unknown",
         confidence: diseaseResult?.disease_analysis?.confidence || 0,
-        details: diseaseResult?.disease_analysis?.status || "Analysis Complete",
-        advice: diseaseResult?.disease_analysis?.recommendation
+        details: diseaseResult?.disease_analysis?.status || "Analysis Complete"
       },
       ai_solution: aiSolution,
       crop: plantIdentity.plant_common
