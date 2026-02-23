@@ -142,6 +142,26 @@ def process_request(data):
         "disease_analysis": {"disease_name": "Unknown", "confidence": 0.0, "model": "TensorFlow-MobileNet-H5"}
     }
     
+    # GUARD: UNSUPPORTED CROP CHECK
+    plant_name = data.get("plant_name", "Unknown Plant").lower()
+    supported_crops = [
+        "apple", "blueberry", "cherry", "corn", "grape", "orange", 
+        "peach", "pepper", "potato", "raspberry", "soybean", "squash", 
+        "strawberry", "tomato"
+    ]
+    
+    is_supported = any(crop in plant_name for crop in supported_crops)
+    
+    if not is_supported and plant_name != "unknown plant":
+        log_info(f"Crop '{plant_name}' is not in the 38-class MobileNet dataset. Bypassing ML.")
+        results_data["disease_analysis"] = {
+            "disease_name": f"{plant_name.title()} - Disease models under training",
+            "confidence": 1.0,
+            "model": "None (Unsupported Crop)",
+            "status": "Unsupported Crop"
+        }
+        return results_data
+        
     try:
         # Read image
         img = cv2.imread(image_path)
