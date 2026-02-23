@@ -17,11 +17,15 @@ try:
     import numpy as np
     import tensorflow as tf
     try:
-        from tf_keras.models import load_model
+        from tf_keras.models import Model
+        from tf_keras.layers import Dense, GlobalAveragePooling2D, Dropout
+        from tf_keras.applications import MobileNetV3Small
         from tf_keras.preprocessing.image import img_to_array
     except ImportError:
         # Fallback to older standard tensorflow.keras if tf_keras isn't installed
-        from tensorflow.keras.models import load_model
+        from tensorflow.keras.models import Model
+        from tensorflow.keras.layers import Dense, GlobalAveragePooling2D, Dropout
+        from tensorflow.keras.applications import MobileNetV3Small
         from tensorflow.keras.preprocessing.image import img_to_array
 except ImportError as e:
     sys.stderr.write(f"ERROR: Missing AI dependencies: {e}\n")
@@ -67,10 +71,37 @@ def load_custom_mobilenet():
             sys.exit(1)
 
         # Load Weights
-        log_debug(f"Loading Custom MobileNetV3 H5 model from {CUSTOM_MODEL_PATH}...")
+        log_debug(f"Loading Custom MobileNetV3 H5 weights from {CUSTOM_MODEL_PATH}...")
         if os.path.exists(CUSTOM_MODEL_PATH):
-            MOBILENET_MODEL = load_model(CUSTOM_MODEL_PATH, compile=False)
-            log_debug("Custom MobileNet H5 loaded successfully.")
+            IMG_SIZE = 160
+            
+            base_model = MobileNetV3Small(
+                input_shape=(IMG_SIZE, IMG_SIZE, 3),
+                include_top=False,
+                weights=None   # We load weights manually
+            )
+
+            x = base_model.output
+            x = GlobalAveragePooling2D()(x)
+            x = Dropout(0.3)(x)
+            output = Dense(len(CLASS_INDICES), activation="softmax")(x)
+
+            MOBILENET_MODEL = Model(inputs=base_model.input, outputs=output)
+            
+            # Load weights (not full model)
+            MOBILENET_MODEL.load_weights(CUSTOM_MODEL_PATH)
+            
+            MOBILENET_MODEL.compile(
+                optimizer="adam",
+                loss="categorical_crossentropy",
+                metrics=["accuracy"]
+            )
+            
+            # Test once to initialize
+            dummy_input = np.zeros((1, IMG_SIZE, IMG_SIZE, 3), dtype=np.float32)
+            MOBILENET_MODEL.predict(dummy_input, verbose=0)
+            
+            log_debug("Custom MobileNet architecture built and weights loaded successfully.")
         else:
             log_error(f"Custom model not found at {CUSTOM_MODEL_PATH}")
             sys.exit(1)
@@ -146,9 +177,9 @@ def mobilenet_predict(model, cv2_image):
 
     try:
         # Preprocessing expected by MobileNetV3/TensorFlow models
-        # Target size usually 224x224
+        # Target size 160x160 for our custom model
         img_rgb = cv2.cvtColor(cv2_image, cv2.COLOR_BGR2RGB)
-        img_resized = cv2.resize(img_rgb, (224, 224))
+        img_resized = cv2.resize(img_rgb, (160, 160))
         
         # Convert to float and normalize if required (typical is to divide by 255.0 or keras preprocess)
         # MobileNetV3 in keras usually expects pixels in [-1, 1] or [0, 255] or [0, 1] depending on how it was built.
