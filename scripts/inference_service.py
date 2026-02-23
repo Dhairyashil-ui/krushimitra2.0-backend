@@ -16,8 +16,13 @@ try:
     import cv2
     import numpy as np
     import tensorflow as tf
-    from tensorflow.keras.models import load_model
-    from tensorflow.keras.preprocessing.image import img_to_array
+    try:
+        from tf_keras.models import load_model
+        from tf_keras.preprocessing.image import img_to_array
+    except ImportError:
+        # Fallback to older standard tensorflow.keras if tf_keras isn't installed
+        from tensorflow.keras.models import load_model
+        from tensorflow.keras.preprocessing.image import img_to_array
 except ImportError as e:
     sys.stderr.write(f"ERROR: Missing AI dependencies: {e}\n")
     sys.exit(1)
