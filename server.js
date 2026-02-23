@@ -1622,8 +1622,11 @@ app.post('/predict', upload.single('file'), async (req, res) => {
 
     if (!plantIdentity || !plantIdentity.success) {
       console.error("PlantNet Error:", plantIdentity?.message || "Unknown error");
-      // Critical error if identification fails
-      throw new Error(`PlantNet Identification Failed: ${plantIdentity?.message}`);
+      return res.status(400).json({
+        success: false,
+        message: "Please upload a valid image of a plant leaf.",
+        error: plantIdentity?.message
+      });
     }
     console.log('PlantNet Result:', plantIdentity.plant_common);
 
@@ -1649,15 +1652,7 @@ app.post('/predict', upload.single('file'), async (req, res) => {
     console.timeEnd('Python_Inference');
     console.log('Python Result:', diseaseResult);
 
-    // 2.5 Check if the crop is unsupported
-    if (diseaseResult?.disease_analysis?.status === "Unsupported Crop") {
-      return res.status(400).json({
-        success: false,
-        message: `Oops! We detected a ${plantIdentity.plant_common}, but our disease AI only supports: Apple, Blueberry, Cherry, Corn, Grape, Orange, Peach, Pepper, Potato, Raspberry, Soybean, Squash, Strawberry, and Tomato. Please upload a supported plant leaf!`,
-        plant_identification: plantIdentity
-      });
-    }
-
+    // Removed unsupported crop rejection block to allow showing crop details
     // 3. AI Solution (Groq)
     let aiSolution = null;
     // Heuristic: If diseased AND success, ask Groq.
