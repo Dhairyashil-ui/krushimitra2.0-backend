@@ -8,3 +8,4 @@ flask
 waitress
 requests
 matplotlib
+tf-keras

@@ -5,6 +5,9 @@ import time
 
 # Suppress standard logs immediately
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+# Force Keras 2 legacy mode to prevent positional argument loading errors with .h5 models in Keras 3
+os.environ["TF_USE_LEGACY_KERAS"] = "1"
+
 import matplotlib
 matplotlib.use('Agg') # Force headless backend
 
