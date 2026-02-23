@@ -1649,6 +1649,15 @@ app.post('/predict', upload.single('file'), async (req, res) => {
     console.timeEnd('Python_Inference');
     console.log('Python Result:', diseaseResult);
 
+    // 2.5 Check if the crop is unsupported
+    if (diseaseResult?.disease_analysis?.status === "Unsupported Crop") {
+      return res.status(400).json({
+        success: false,
+        message: `Oops! We detected a ${plantIdentity.plant_common}, but our disease AI only supports: Apple, Blueberry, Cherry, Corn, Grape, Orange, Peach, Pepper, Potato, Raspberry, Soybean, Squash, Strawberry, and Tomato. Please upload a supported plant leaf!`,
+        plant_identification: plantIdentity
+      });
+    }
+
     // 3. AI Solution (Groq)
     let aiSolution = null;
     // Heuristic: If diseased AND success, ask Groq.
