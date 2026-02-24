@@ -794,9 +794,9 @@ app.get('/farmers/:phone', authenticate, async (req, res) => {
   }
 });
 
-// 2. Authentication
 
-// Google OAuth Authentication Endpoints
+
+// 2. Authentication
 
 // POST /auth/google - Google OAuth login/signup
 app.post('/auth/google', async (req, res) => {
@@ -2137,81 +2137,166 @@ app.get('/mandis/nearest', authenticate, async (req, res) => {
   }
 });
 
-// GET /mandiprices - Get latest prices
+// GET /mandiprices - Get latest prices with DB fallback and proxy scraping
 app.get('/mandiprices', authenticate, async (req, res) => {
   const startTime = Date.now();
   try {
-    const { crop, location } = req.query;
+    const { crop, location, mandiName } = req.query; // matches what frontend sends
+    const queryLocation = mandiName || location || 'Pune';
 
-    // Build aggregation pipeline to get latest prices
-    const pipeline = [];
+    const { connectToDatabase } = require('./db');
+    const db = await connectToDatabase('admin');
+    const mandiDailyCollection = db.db("KrushiMitraDB").collection('mandi_daily');
 
-    // Match stage
-    const match = {};
-    if (crop) match.crop = crop;
-    if (location) match.location = location;
-    if (Object.keys(match).length > 0) {
-      pipeline.push({ $match: match });
+    const apiKey = '579b464db66ec23bdd000001df962d58b1b746f076cec6550e5c7b3b';
+    const queryName = queryLocation;
+
+    // 5 PM Logic
+    const now = new Date();
+    const currentHour = now.getHours();
+    const targetDate = new Date(now);
+
+    if (currentHour < 17) {
+      targetDate.setDate(targetDate.getDate() - 1);
     }
 
-    // Sort by date descending
-    pipeline.push({ $sort: { date: -1 } });
+    const day = String(targetDate.getDate()).padStart(2, '0');
+    const month = String(targetDate.getMonth() + 1).padStart(2, '0');
+    const year = targetDate.getFullYear();
+    const formattedDate = `${day}/${month}/${year}`;
+    const isoDateString = `${year}-${month}-${day}`; // For internal DB tracking
 
-    // Group by crop and location to get latest for each
-    pipeline.push({
-      $group: {
-        _id: { crop: "$crop", location: "$location" },
-        latestPrice: { $first: "$$ROOT" }
+    const apiUrl = `https://api.data.gov.in/resource/9ef84268-d588-465a-a308-a864a43d0070?api-key=${apiKey}&format=json&limit=200&filters[arrival_date]=${formattedDate}`;
+
+    // Try to fetch from external API safely
+    let externalData = null;
+    try {
+      const response = await fetch(apiUrl);
+      if (response.ok) {
+        externalData = await response.json();
+      } else {
+        logger.warn(`Failed to fetch from data.gov.in: ${response.statusText}`);
       }
-    });
+    } catch (e) {
+      logger.error(`Error fetching external mandi API: ${e.message}`);
+    }
 
-    // Project to get the original document structure
-    pipeline.push({
-      $replaceRoot: { newRoot: "$latestPrice" }
-    });
+    const TARGET_CROPS = ['Wheat', 'Soyabean', 'Cotton', 'Cotton(Kapas)', 'Onion', 'Tomato', 'Potato', 'Maize', 'Bajra', 'Mustard'];
 
-    // Execute aggregation
-    const latestPrices = await mandipricesCollection.aggregate(pipeline).toArray();
+    let finalRecords = [];
+    if (externalData && externalData.records && externalData.records.length > 0) {
+      // Fuzzy matching on location: Check if data.gov.in market name string includes the query string (e.g. "Pimpri")
+      let localRecords = externalData.records.filter((r) =>
+        r.market.toLowerCase().includes(queryName.toLowerCase()) ||
+        queryName.toLowerCase().includes(r.market.split(' ')[0].toLowerCase())
+      );
+
+      // If no direct market match, try District or State level fallback
+      if (localRecords.length === 0) {
+        localRecords = externalData.records;
+      }
+
+      // Filter by crop if requested, else by target crops
+      const filteredRecords = localRecords
+        .filter((r) => {
+          if (crop) {
+            return r.commodity.toLowerCase().includes(crop.toLowerCase());
+          }
+          return TARGET_CROPS.some(c => r.commodity.toLowerCase().includes(c.toLowerCase()));
+        })
+        .map((r, index) => ({
+          _id: r.id || `${r.market}-${r.commodity}-${index}`,
+          crop: r.commodity,
+          location: r.market,
+          price: parseFloat(r.modal_price) || parseFloat(r.max_price) || 0,
+          date: r.arrival_date,
+          category: r.variety || 'General',
+          unit: 'per Quintal',
+          change: 0,
+          changePercent: 0,
+          quality: r.grade || 'FAQ'
+        }));
+
+      finalRecords = filteredRecords;
+      if (!crop) {
+        finalRecords = filteredRecords.slice(0, 5); // limit only if generic query
+      }
+
+      // Save valid data to DB
+      if (finalRecords.length > 0) {
+        try {
+          await mandiDailyCollection.updateOne(
+            { mandiName: queryName, date: isoDateString }, // Upsert by unique mandi+date
+            {
+              $set: {
+                mandiName: queryName,
+                date: isoDateString,
+                prices: finalRecords,
+                updatedAt: new Date()
+              }
+            },
+            { upsert: true }
+          );
+          logger.info(`Saved ${finalRecords.length} records to mandi_daily for ${queryName} on ${isoDateString}`);
+        } catch (dbErr) {
+          logger.error(`Failed saving mandi prices to DB: ${dbErr.message}`);
+        }
+      }
+    }
+
+    // Fallback if data.gov.in fails or no records returned for specific crop/mandi
+    if (finalRecords.length === 0) {
+      // Try fallback 1: our new mandi_daily collection
+      try {
+        const cachedDoc = await mandiDailyCollection.findOne({ mandiName: queryName, date: isoDateString });
+        if (cachedDoc && cachedDoc.prices && cachedDoc.prices.length > 0) {
+          finalRecords = cachedDoc.prices;
+          if (crop) {
+            finalRecords = finalRecords.filter(p => p.crop.toLowerCase().includes(crop.toLowerCase()));
+          }
+          logger.info(`Served cached mandi prices for ${queryName} on ${isoDateString} from new DB caching`);
+        }
+      } catch (dbCacheErr) {
+        logger.error(`Failed serving cached DB mandi data: ${dbCacheErr.message}`);
+      }
+
+      // Try fallback 2: Original mandiprices collection using aggregation pipeline and robust fuzzy match
+      if (finalRecords.length === 0) {
+        const pipeline = [];
+        const match = {};
+        if (crop) match.crop = { $regex: crop, $options: 'i' };
+        if (queryName) match.location = { $regex: queryName, $options: 'i' };
+
+        if (Object.keys(match).length > 0) {
+          pipeline.push({ $match: match });
+        }
+        pipeline.push({ $sort: { date: -1 } });
+        pipeline.push({
+          $group: {
+            _id: { crop: "$crop", location: "$location" },
+            latestPrice: { $first: "$$ROOT" }
+          }
+        });
+        pipeline.push({
+          $replaceRoot: { newRoot: "$latestPrice" }
+        });
+
+        finalRecords = await mandipricesCollection.aggregate(pipeline).toArray();
+        logger.info(`Served fallback mandi prices for ${queryName} from original mandiprices DB, found ${finalRecords.length}`);
+      }
+    }
 
     const duration = Date.now() - startTime;
-    logDBOperation('findMandiPrices', {
-      crop,
-      location,
-      returned: latestPrices.length,
-      durationMs: duration,
-      status: 'success'
-    });
-
-    logger.info('Mandi prices retrieved successfully', {
-      count: latestPrices.length,
-      crop,
-      location,
-      durationMs: duration
-    });
-
-    res.status(200).json({
+    res.json({
       status: 'success',
-      data: latestPrices
+      dataDateStatus: currentHour < 17 ? "Showing yesterday's data" : "Showing today's updated data",
+      data: finalRecords,
+      meta: { durationMs: duration, source: 'proxy_and_db' }
     });
   } catch (error) {
-    const duration = Date.now() - startTime;
-    logDBError('findMandiPrices', error, {
-      crop,
-      location,
-      durationMs: duration
-    });
-    logger.error('Error fetching mandi prices', {
-      error: error.message,
-      crop,
-      location,
-      durationMs: duration
-    });
-
+    logger.error('Error fetching mandi prices proxy', { error: error.message });
     res.status(500).json({
-      error: {
-        code: 'SERVER_ERROR',
-        message: 'Error fetching mandi prices'
-      }
+      error: { code: 'SERVER_ERROR', message: 'Error fetching mandi prices' }
     });
   }
 });
