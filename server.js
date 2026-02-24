@@ -2185,14 +2185,21 @@ app.get('/mandiprices', authenticate, async (req, res) => {
 
     let finalRecords = [];
     if (externalData && externalData.records && externalData.records.length > 0) {
-      // Fuzzy matching on location: Check if data.gov.in market name string includes the query string (e.g. "Pimpri")
-      let localRecords = externalData.records.filter((r) =>
-        r.market.toLowerCase().includes(queryName.toLowerCase()) ||
-        queryName.toLowerCase().includes(r.market.split(' ')[0].toLowerCase())
-      );
+      const normalize = (text) => text ? text.toLowerCase().replace(/[^a-z]/g, "") : "";
+      const search = normalize(queryName);
 
-      // Ensure we don't accidentally dump all records if the market isn't found
-      // We WANT localRecords to stay empty so that the database fallback triggers correctly.
+      let localRecords = externalData.records.filter((r) => {
+        const loc = normalize(r.market);
+        return loc.includes(search) && r.state === "Maharashtra";
+      });
+
+      // Fallback: if Pimpri yields nothing, fall back to Pune
+      if (localRecords.length === 0 && search.includes("pimpri")) {
+        localRecords = externalData.records.filter((r) => {
+          const loc = normalize(r.market);
+          return loc.includes("pune") && r.state === "Maharashtra";
+        });
+      }
 
       // Filter by crop if requested, else by target crops
       const filteredRecords = localRecords
