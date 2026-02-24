@@ -2191,10 +2191,8 @@ app.get('/mandiprices', authenticate, async (req, res) => {
         queryName.toLowerCase().includes(r.market.split(' ')[0].toLowerCase())
       );
 
-      // If no direct market match, try District or State level fallback
-      if (localRecords.length === 0) {
-        localRecords = externalData.records;
-      }
+      // Ensure we don't accidentally dump all records if the market isn't found
+      // We WANT localRecords to stay empty so that the database fallback triggers correctly.
 
       // Filter by crop if requested, else by target crops
       const filteredRecords = localRecords
