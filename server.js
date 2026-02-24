@@ -2299,6 +2299,18 @@ app.get('/mandiprices', authenticate, async (req, res) => {
   }
 });
 
+// Temporary route to clear corrupted buggy cache
+app.get('/_admin/clear_mandi_cache', async (req, res) => {
+  try {
+    const { connectToDatabase } = require('./db');
+    const db = await connectToDatabase('admin');
+    const result = await db.db("KrushiMitraDB").collection('mandi_daily').deleteMany({});
+    res.json({ status: 'success', deleted: result.deletedCount });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // POST /ai/chat - Send user query to AI
 app.post('/ai/chat', authenticate, async (req, res) => {
   const startTime = Date.now();
