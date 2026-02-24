@@ -40,5 +40,342 @@
         "lat": 19.1235,
         "lon": 74.1205,
         "departments": "Specialized Onion/Potato"
+    },
+    {
+        "name": "Mumbai APMC (Vashi)",
+        "location": "Navi Mumbai",
+        "lat": 19.0748,
+        "lon": 73.0041,
+        "departments": "Largest hub for Grains, Fruits, Veg"
+    },
+    {
+        "name": "Kalyan APMC",
+        "location": "Thane",
+        "lat": 19.2396,
+        "lon": 73.1304,
+        "departments": "Major transit point for suburban produce"
+    },
+    {
+        "name": "Palghar APMC",
+        "location": "Palghar",
+        "lat": 19.6978,
+        "lon": 72.7667,
+        "departments": "Regional vegetables and staples"
+    },
+    {
+        "name": "Panvel APMC",
+        "location": "Raigad",
+        "lat": 18.9902,
+        "lon": 73.1205,
+        "departments": "Key market for Rice and Vegetables"
+    },
+    {
+        "name": "Pen APMC",
+        "location": "Raigad",
+        "lat": 18.7352,
+        "lon": 73.0822,
+        "departments": "Local seasonal crops"
+    },
+    {
+        "name": "Ratnagiri APMC",
+        "location": "Ratnagiri",
+        "lat": 16.9902,
+        "lon": 73.312,
+        "departments": "Alphonso Mango & Cashew hub"
+    },
+    {
+        "name": "Kudal APMC",
+        "location": "Sindhudurg",
+        "lat": 16.0125,
+        "lon": 73.6872,
+        "departments": "Southern Konkan spices and fruits"
+    },
+    {
+        "name": "Baramati APMC",
+        "location": "Indapur Road, Baramati",
+        "lat": 18.1561,
+        "lon": 74.5775
+    },
+    {
+        "name": "Junnar (Narayangaon) APMC",
+        "location": "Narayangaon",
+        "lat": 19.1071,
+        "lon": 73.9726
+    },
+    {
+        "name": "Khed APMC",
+        "location": "Chakan-Khed Road",
+        "lat": 18.7565,
+        "lon": 73.8516
+    },
+    {
+        "name": "Manchar APMC",
+        "location": "Market Yard, Manchar",
+        "lat": 19.0012,
+        "lon": 73.9405
+    },
+    {
+        "name": "Mulshi APMC",
+        "location": "Paud/Mulshi Taluka",
+        "lat": 18.5415,
+        "lon": 73.611
+    },
+    {
+        "name": "Solapur APMC (Main Yard)",
+        "location": "Bagehalli Road, Solapur",
+        "lat": 17.6835,
+        "lon": 75.9331
+    },
+    {
+        "name": "Akluj APMC",
+        "location": "Shankarao Mohite Yard",
+        "lat": 17.8935,
+        "lon": 75.0215
+    },
+    {
+        "name": "Barshi APMC",
+        "location": "Tuljapur Road, Barshi",
+        "lat": 18.2325,
+        "lon": 75.6982
+    },
+    {
+        "name": "Pandharpur APMC",
+        "location": "Market Yard, Pandharpur",
+        "lat": 17.6745,
+        "lon": 75.3315
+    },
+    {
+        "name": "Kurduwadi APMC",
+        "location": "Tembhurni Road",
+        "lat": 18.0835,
+        "lon": 75.4312
+    },
+    {
+        "name": "Karmala APMC",
+        "location": "Main Yard, Karmala",
+        "lat": 18.4125,
+        "lon": 75.1952
+    },
+    {
+        "name": "Akkalkot APMC",
+        "location": "Main Yard, Akkalkot",
+        "lat": 17.5255,
+        "lon": 76.2085
+    },
+    {
+        "name": "Satara APMC",
+        "location": "Market Yard, Satara",
+        "lat": 17.6885,
+        "lon": 74.0045
+    },
+    {
+        "name": "Karad APMC",
+        "location": "Oglewadi / Railway Stn",
+        "lat": 17.2885,
+        "lon": 74.1952
+    },
+    {
+        "name": "Phaltan APMC",
+        "location": "Market Yard, Phaltan",
+        "lat": 17.9885,
+        "lon": 74.4312
+    },
+    {
+        "name": "Lonand APMC",
+        "location": "Market Yard, Lonand",
+        "lat": 18.0435,
+        "lon": 74.1905
+    },
+    {
+        "name": "Koregaon APMC",
+        "location": "Market Yard, Koregaon",
+        "lat": 17.6912,
+        "lon": 74.1725
+    },
+    {
+        "name": "Wai APMC",
+        "location": "Market Yard, Wai",
+        "lat": 17.9425,
+        "lon": 73.8915
+    },
+    {
+        "name": "Sangli APMC (Main Yard)",
+        "location": "Sangli",
+        "lat": 16.8525,
+        "lon": 74.5912
+    },
+    {
+        "name": "Tasgaon APMC",
+        "location": "Sangli",
+        "lat": 17.0315,
+        "lon": 74.6005
+    },
+    {
+        "name": "Islampur APMC",
+        "location": "Sangli",
+        "lat": 17.0515,
+        "lon": 74.2645
+    },
+    {
+        "name": "Kolhapur APMC (Shahu)",
+        "location": "Kolhapur",
+        "lat": 16.7115,
+        "lon": 74.2545
+    },
+    {
+        "name": "Gadhinglaj APMC",
+        "location": "Kolhapur",
+        "lat": 16.2235,
+        "lon": 74.3512
+    },
+    {
+        "name": "Jaysingpur APMC",
+        "location": "Kolhapur",
+        "lat": 16.7815,
+        "lon": 74.5615
+    },
+    {
+        "name": "Nashik APMC (Main Yard)",
+        "location": "Peth Road, Panchavati",
+        "lat": 20.021,
+        "lon": 73.7928
+    },
+    {
+        "name": "Lasalgaon APMC",
+        "location": "Niphad Taluka",
+        "lat": 20.1442,
+        "lon": 74.2255
+    },
+    {
+        "name": "Pimpalgaon Baswant APMC",
+        "location": "Pimpalgaon, Niphad",
+        "lat": 20.1712,
+        "lon": 74.0045
+    },
+    {
+        "name": "Malegaon APMC",
+        "location": "Camp Road, Malegaon",
+        "lat": 20.5525,
+        "lon": 74.5215
+    },
+    {
+        "name": "Satana APMC",
+        "location": "Baglan Taluka",
+        "lat": 20.5912,
+        "lon": 74.2005
+    },
+    {
+        "name": "Yeola APMC",
+        "location": "Yeola Town",
+        "lat": 20.0355,
+        "lon": 74.4842
+    },
+    {
+        "name": "Sinnar APMC",
+        "location": "Sinnar Town",
+        "lat": 19.8485,
+        "lon": 73.9952
+    },
+    {
+        "name": "Chandwad APMC",
+        "location": "Chandwad Town",
+        "lat": 20.3285,
+        "lon": 74.2415
+    },
+    {
+        "name": "Kalvan APMC",
+        "location": "Kalvan Town",
+        "lat": 20.4855,
+        "lon": 73.8312
+    },
+    {
+        "name": "Ahmednagar APMC",
+        "location": "Market Yard, Ahmednagar",
+        "lat": 19.0945,
+        "lon": 74.7482
+    },
+    {
+        "name": "Sangamner APMC",
+        "location": "Sangamner Town",
+        "lat": 19.5715,
+        "lon": 74.2125
+    },
+    {
+        "name": "Kopargaon APMC",
+        "location": "Kopargaon Town",
+        "lat": 19.8912,
+        "lon": 74.4825
+    },
+    {
+        "name": "Shrirampur APMC",
+        "location": "Shrirampur Town",
+        "lat": 19.6235,
+        "lon": 74.6515
+    },
+    {
+        "name": "Rahuri APMC",
+        "location": "Rahuri Town",
+        "lat": 19.3885,
+        "lon": 74.6542
+    },
+    {
+        "name": "Shevgaon APMC",
+        "location": "Shevgaon Town",
+        "lat": 19.3452,
+        "lon": 75.2215
+    },
+    {
+        "name": "Jalgaon APMC",
+        "location": "Market Yard, Jalgaon",
+        "lat": 21.0075,
+        "lon": 75.5625
+    },
+    {
+        "name": "Raver APMC",
+        "location": "Raver Town",
+        "lat": 21.2412,
+        "lon": 76.0315
+    },
+    {
+        "name": "Chopda APMC",
+        "location": "Chopda Town",
+        "lat": 21.2485,
+        "lon": 75.3015
+    },
+    {
+        "name": "Bhusawal APMC",
+        "location": "Bhusawal Town",
+        "lat": 21.0485,
+        "lon": 75.7952
+    },
+    {
+        "name": "Pachora APMC",
+        "location": "Pachora Town",
+        "lat": 20.6712,
+        "lon": 75.3515
+    },
+    {
+        "name": "Dhule APMC",
+        "location": "Dhule Town",
+        "lat": 20.9015,
+        "lon": 74.7745
+    },
+    {
+        "name": "Dondaicha APMC",
+        "location": "Dhule",
+        "lat": 21.3325,
+        "lon": 74.4812
+    },
+    {
+        "name": "Nandurbar APMC",
+        "location": "Nandurbar Town",
+        "lat": 21.3712,
+        "lon": 74.2415
+    },
+    {
+        "name": "Shahada APMC",
+        "location": "Nandurbar",
+        "lat": 21.5415,
+        "lon": 74.4725
     }
 ]
