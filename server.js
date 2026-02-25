@@ -267,7 +267,7 @@ async function initializeCollections() {
 
     farmersCollection = db.collection('farmers');
     activitiesCollection = db.collection('activities');
-    mandipricesCollection = db.collection('mandiprices');
+    mandipricesCollection = db.collection('mandi_prices');
     aiinteractionsCollection = db.collection('aiinteractions');
     usersCollection = db.collection('users'); // Add this line
     sessionsCollection = db.collection('sessions');
@@ -1838,29 +1838,95 @@ app.post('/demo/orb-voice', (req, res) => {
   const VoiceResponse = twilio.twiml.VoiceResponse;
   const response = new VoiceResponse();
 
-  // HARDCODED VOICE MESSAGE
-  // "Namaskar. This is KrushiMitra Orb..."
+  // The protocol and host are needed for the webhook action URL
+  const protocol = req.secure ? 'https' : 'http';
+  const host = req.get('host');
+  const actionUrl = `${protocol}://${host}/demo/orb-process`;
+
+  // Start a <Gather> block to listen to the user
+  const gather = response.gather({
+    input: 'speech',
+    action: actionUrl,
+    method: 'POST',
+    language: 'en-IN',
+    speechTimeout: 'auto',
+    timeout: 3
+  });
+
   const message = `
-    Namaskar. 
-    This is Krushi Mitra Orb. 
-    Today’s mandi price update near Tathawade. 
-    Tomato is selling at 18 rupees per kilo. 
-    Onion is 22 rupees per kilo. 
-    Potato is 16 rupees per kilo. 
-    You may plan selling accordingly. 
-    Thank you.
+    Hello! This is Krushi Mitra AI.
+    Today, Tomato is selling at 18 rupees. 
+    Onion is 22 rupees. 
+    Potato is 16 rupees. 
+    What else would you like to know about today?
   `;
 
-  // <Say> verb with male voice for friendly, natural tone
-  response.say({
-    voice: 'man', // Male voice - sounds more like a friend
-    language: 'hi-IN' // Hindi for natural Indian accent
+  // <Say> verb wrapped inside <Gather>
+  // standard 'alice' is free and stable
+  gather.say({
+    voice: 'alice',
+    language: 'en-IN'
   }, message);
 
-  // End the call
+  // If the user doesn't say anything, it falls through to this point
+  response.say({ voice: 'alice', language: 'en-IN' }, "I didn't hear anything. Goodbye!");
   response.hangup();
 
-  // Return XML
+  res.type('text/xml');
+  res.send(response.toString());
+});
+
+// POST /demo/orb-process
+// Twilio Webhook: Handles user speech input from the call loop
+app.post('/demo/orb-process', (req, res) => {
+  const VoiceResponse = twilio.twiml.VoiceResponse;
+  const response = new VoiceResponse();
+
+  const userSpeech = req.body.SpeechResult;
+  console.log('🗣️ User spoke during Twilio call:', userSpeech);
+
+  const protocol = req.secure ? 'https' : 'http';
+  const host = req.get('host');
+  const actionUrl = `${protocol}://${host}/demo/orb-process`;
+
+  const gather = response.gather({
+    input: 'speech',
+    action: actionUrl,
+    method: 'POST',
+    language: 'en-IN',
+    speechTimeout: 'auto',
+    timeout: 3
+  });
+
+  if (userSpeech) {
+    // Basic mocked conversational loop
+    let reply = "I heard you say: " + userSpeech + ". I am currently in demo mode. Please ask about tomatoes, onions, or say goodbye to end the call.";
+
+    const speechLower = userSpeech.toLowerCase();
+    if (speechLower.includes('tomato')) {
+      reply = "Tomato prices are stable today at 18 rupees per kilo across Pune markets.";
+    } else if (speechLower.includes('onion')) {
+      reply = "Onion prices dropped slightly to 22 rupees per kilo today.";
+    } else if (speechLower.includes('potato')) {
+      reply = "Potato is selling at 16 rupees per kilo.";
+    } else if (speechLower.includes('bye') || speechLower.includes('goodbye') || speechLower.includes('cancel')) {
+      // Exit the gather loop
+      response.say({ voice: 'alice', language: 'en-IN' }, "Goodbye! Thank you for using Krushi Mitra.");
+      response.hangup();
+      res.type('text/xml');
+      return res.send(response.toString());
+    }
+
+    gather.say({ voice: 'alice', language: 'en-IN' }, reply);
+  } else {
+    // Give them one more chance if speech wasn't recognized
+    gather.say({ voice: 'alice', language: 'en-IN' }, "Sorry, I didn't catch that. Can you repeat?");
+  }
+
+  // Fallback if they fall through Gather again
+  response.say({ voice: 'alice', language: 'en-IN' }, "Call ending due to silence. Goodbye.");
+  response.hangup();
+
   res.type('text/xml');
   res.send(response.toString());
 });
@@ -2149,7 +2215,7 @@ app.get('/mandiprices', authenticate, async (req, res) => {
     // Match stage
     const match = {};
     if (crop) match.crop = crop;
-    if (location) match.location = location;
+    if (location) match.mandi = location;
     if (Object.keys(match).length > 0) {
       pipeline.push({ $match: match });
     }
@@ -2160,7 +2226,7 @@ app.get('/mandiprices', authenticate, async (req, res) => {
     // Group by crop and location to get latest for each
     pipeline.push({
       $group: {
-        _id: { crop: "$crop", location: "$location" },
+        _id: { crop: "$crop", mandi: "$mandi" },
         latestPrice: { $first: "$$ROOT" }
       }
     });

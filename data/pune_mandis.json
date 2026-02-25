@@ -377,5 +377,230 @@
         "location": "Nandurbar",
         "lat": 21.5415,
         "lon": 74.4725
+    },
+    {
+        "name": "Manjari Sub Market",
+        "lat": 18.4974,
+        "lon": 73.9614
+    },
+    {
+        "name": "Khadki Sub Market",
+        "lat": 18.563,
+        "lon": 73.844
+    },
+    {
+        "name": "Bhor",
+        "lat": 18.148,
+        "lon": 73.845
+    },
+    {
+        "name": "Daund",
+        "lat": 18.465,
+        "lon": 74.583
+    },
+    {
+        "name": "Indapur",
+        "lat": 18.115,
+        "lon": 75.025
+    },
+    {
+        "name": "Junnar (Otur)",
+        "lat": 19.255,
+        "lon": 73.935
+    },
+    {
+        "name": "Nira",
+        "lat": 18.106,
+        "lon": 74.208
+    },
+    {
+        "name": "Shirur",
+        "lat": 18.8285,
+        "lon": 74.3735
+    },
+    {
+        "name": "Pune (Hadapsar)",
+        "lat": 18.5025,
+        "lon": 73.927
+    },
+    {
+        "name": "Ahmedpur",
+        "lat": 18.7062,
+        "lon": 76.9373
+    },
+    {
+        "name": "Aurad Shahajani",
+        "lat": 18.0958,
+        "lon": 76.8881
+    },
+    {
+        "name": "Ausa",
+        "lat": 18.2515,
+        "lon": 76.4991
+    },
+    {
+        "name": "Chakur",
+        "lat": 18.5131,
+        "lon": 76.8753
+    },
+    {
+        "name": "Jalkot",
+        "lat": 18.6292,
+        "lon": 77.1811
+    },
+    {
+        "name": "Latur",
+        "lat": 18.3994,
+        "lon": 76.5777
+    },
+    {
+        "name": "Nilanga",
+        "lat": 18.1162,
+        "lon": 76.7525
+    },
+    {
+        "name": "Renapur",
+        "lat": 18.5167,
+        "lon": 76.6
+    },
+    {
+        "name": "Udgir",
+        "lat": 18.3961,
+        "lon": 77.1175
+    },
+    {
+        "name": "Kolhapur (Laxmipuri)",
+        "lat": 16.6987,
+        "lon": 74.2295
+    },
+    {
+        "name": "Kolhapur (Malkapur)",
+        "lat": 16.93,
+        "lon": 73.92
+    },
+    {
+        "name": "Vadgaonpeth",
+        "lat": 16.5,
+        "lon": 74.19
+    },
+    {
+        "name": "Amalner",
+        "lat": 21.041,
+        "lon": 75.0574
+    },
+    {
+        "name": "Chalisgaon",
+        "lat": 20.4634,
+        "lon": 74.9999
+    },
+    {
+        "name": "Dharangaon",
+        "lat": 21.0061,
+        "lon": 75.2857
+    },
+    {
+        "name": "Jamner",
+        "lat": 20.81,
+        "lon": 75.7708
+    },
+    {
+        "name": "Pachora (Bhadgaon)",
+        "lat": 20.6655,
+        "lon": 75.2268
+    },
+    {
+        "name": "Parola",
+        "lat": 20.8872,
+        "lon": 75.1167
+    },
+    {
+        "name": "Raver (Sauda)",
+        "lat": 21.1539,
+        "lon": 75.9861
+    },
+    {
+        "name": "Yawal",
+        "lat": 21.1667,
+        "lon": 75.7
+    },
+    {
+        "name": "Ambad (Vadigodri)",
+        "lat": 19.6204,
+        "lon": 75.7988
+    },
+    {
+        "name": "Ashti (Jalna)",
+        "lat": 19.3767,
+        "lon": 76.2252
+    },
+    {
+        "name": "Bhokardan",
+        "lat": 20.253,
+        "lon": 75.769
+    },
+    {
+        "name": "Ghansawangi",
+        "lat": 19.5383,
+        "lon": 76.0159
+    },
+    {
+        "name": "Jalna (Badnapur)",
+        "lat": 19.8667,
+        "lon": 75.8333
+    },
+    {
+        "name": "Mantha",
+        "lat": 19.6467,
+        "lon": 76.3853
+    },
+    {
+        "name": "Partur",
+        "lat": 19.3528,
+        "lon": 76.1258
+    },
+    {
+        "name": "Akhadabalapur",
+        "lat": 19.4796,
+        "lon": 77.3532
+    },
+    {
+        "name": "Basmat",
+        "lat": 19.3276,
+        "lon": 77.1512
+    },
+    {
+        "name": "Hingoli (Main Yard)",
+        "lat": 19.719,
+        "lon": 77.1482
+    },
+    {
+        "name": "Hingoli (Kanegoan Naka)",
+        "lat": 19.516,
+        "lon": 77.0863
+    },
+    {
+        "name": "Jawala-Bajar",
+        "lat": 19.4638,
+        "lon": 76.9861
+    },
+    {
+        "name": "Kalamnuri",
+        "lat": 19.6738,
+        "lon": 77.3114
+    },
+    {
+        "name": "Sengoan",
+        "lat": 19.7929,
+        "lon": 76.8865
+    },
+    {
+        "name": "Thane APMC Market Yard",
+        "lat": 19.1972,
+        "lon": 72.9722
+    },
+    {
+        "name": "Vasai (Bassein) APMC Market Yard",
+        "lat": 19.47,
+        "lon": 72.8
     }
 ]
