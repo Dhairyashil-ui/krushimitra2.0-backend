@@ -28,6 +28,13 @@
         "departments": "Grains, Non-conventional"
     },
     {
+        "name": "Khadki Sub Market",
+        "location": "Khadki Cantonment",
+        "lat": 18.563,
+        "lon": 73.844,
+        "departments": "Veg"
+    },
+    {
         "name": "Uttamnagar Sub-Market",
         "location": "Uttam Nagar (NDA Road)",
         "lat": 18.4682,
@@ -377,16 +384,6 @@
         "location": "Nandurbar",
         "lat": 21.5415,
         "lon": 74.4725
-    },
-    {
-        "name": "Manjari Sub Market",
-        "lat": 18.4974,
-        "lon": 73.9614
-    },
-    {
-        "name": "Khadki Sub Market",
-        "lat": 18.563,
-        "lon": 73.844
     },
     {
         "name": "Bhor",
