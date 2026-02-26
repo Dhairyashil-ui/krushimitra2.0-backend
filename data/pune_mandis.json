@@ -1,27 +1,27 @@
 [
     {
-        "name": "Pune APMC",
+        "name": "Main Market Yard (Gultekdi)",
         "location": "Maharshi Nagar, Gultekdi",
         "lat": 18.4884,
         "lon": 73.8638,
         "departments": "Fruits, Veg, Grains, Flowers"
     },
     {
-        "name": "Pimpri Sub Market",
+        "name": "Pimpri Sub-Market Yard",
         "location": "Pimpri (Beside Flyover)",
         "lat": 18.6277,
         "lon": 73.7997,
         "departments": "Veg, Flowers"
     },
     {
-        "name": "Moshi Sub Market",
+        "name": "Moshi Sub-Market Yard",
         "location": "Moshi (Nashik Highway)",
         "lat": 18.6738,
         "lon": 73.8761,
         "departments": "Veg, Grains, Cattle"
     },
     {
-        "name": "Manjari Sub Market",
+        "name": "Manjri Sub-Market Yard",
         "location": "Manjri Budruk",
         "lat": 18.5244,
         "lon": 73.9786,

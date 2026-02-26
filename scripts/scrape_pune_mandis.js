@@ -9,22 +9,22 @@ const APMC_URL = 'https://apmcpune.in/en/market-price-en/daily-market-price-en';
 
 // Maps the site's categories to our DB's "Mandi" location string
 const CATEGORY_TO_MANDI = {
-    'Main Market Yard (Veg)': 'Pune APMC (Veg)',
-    'Main Market Yard (Fruit)': 'Pune APMC (Fruit)',
-    'Main Market Yard (Gul Bhusar)': 'Pune APMC (Gul Bhusar)',
-    'Main Market Yard (Keli Paan)': 'Pune APMC (Keli Paan)',
-    'Main Market Yard (Leafy Veg)': 'Pune APMC (Leafy Veg)',
-    'Main Market Yard (Onion/Potato)': 'Pune APMC (Onion/Potato)',
-    'Main Market Yard (Dry Fruits)': 'Pune APMC (Dry Fruits)',
-    'Manjari (Fruit)': 'Manjari Sub Market (Fruit)',
-    'Manjari (Leafy Veg)': 'Manjari Sub Market (Leafy Veg)',
-    'Manjari (Onion/Potato)': 'Manjari Sub Market (Onion/Potato)',
-    'Manjari (Veg)': 'Manjari Sub Market (Veg)',
-    'Moshi (Fruit)': 'Moshi Sub Market (Fruit)',
-    'Moshi (Veg)': 'Moshi Sub Market (Veg)',
-    'Moshi (Onion/Potato)': 'Moshi Sub Market (Onion/Potato)',
-    'Pimpri Market (Veg)': 'Pimpri Sub Market (Veg)',
-    'Khadki Market (Veg)': 'Khadki Sub Market (Veg)'
+    'Main Market Yard (Veg)': 'Main Market Yard (Gultekdi)',
+    'Main Market Yard (Fruit)': 'Main Market Yard (Gultekdi)',
+    'Main Market Yard (Gul Bhusar)': 'Main Market Yard (Gultekdi)',
+    'Main Market Yard (Keli Paan)': 'Main Market Yard (Gultekdi)',
+    'Main Market Yard (Leafy Veg)': 'Main Market Yard (Gultekdi)',
+    'Main Market Yard (Onion/Potato)': 'Main Market Yard (Gultekdi)',
+    'Main Market Yard (Dry Fruits)': 'Main Market Yard (Gultekdi)',
+    'Manjari (Fruit)': 'Manjri Sub-Market Yard',
+    'Manjari (Leafy Veg)': 'Manjri Sub-Market Yard',
+    'Manjari (Onion/Potato)': 'Manjri Sub-Market Yard',
+    'Manjari (Veg)': 'Manjri Sub-Market Yard',
+    'Moshi (Fruit)': 'Moshi Sub-Market Yard',
+    'Moshi (Veg)': 'Moshi Sub-Market Yard',
+    'Moshi (Onion/Potato)': 'Moshi Sub-Market Yard',
+    'Pimpri Market (Veg)': 'Pimpri Sub-Market Yard',
+    'Khadki Market (Veg)': 'Khadki Sub Market'
 };
 
 // Maps English/Marathi headers to our standard keys
