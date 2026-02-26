@@ -1,3 +1,5 @@
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const { chromium } = require('playwright');
 const { connectToDatabase } = require('../db');
 const { logger } = require('../logger');
@@ -7,16 +9,22 @@ const APMC_URL = 'https://apmcpune.in/en/market-price-en/daily-market-price-en';
 
 // Maps the site's categories to our DB's "Mandi" location string
 const CATEGORY_TO_MANDI = {
-    'Fruits Market': 'Pune APMC (Fruits)',
-    'Jaggery Wholesale Market': 'Pune APMC (Jaggery)',
-    'Flower Market': 'Pune APMC (Flowers)',
-    'Banana and Betel Leaf Market': 'Pune APMC (Banana)',
-    'Vegetable Market': 'Pune APMC (Vegetables)',
-    'Onion Potato Market': 'Pune APMC (Onion/Potato)',
-    'Sub Market Manjari': 'Manjari Sub Market',
-    'Sub Market Mulshi': 'Mulshi Sub Market',
-    'Sub Market Pimpri': 'Pimpri Sub Market',
-    'Sub Market Khadki': 'Khadki Sub Market',
+    'Main Market Yard (Veg)': 'Pune APMC (Veg)',
+    'Main Market Yard (Fruit)': 'Pune APMC (Fruit)',
+    'Main Market Yard (Gul Bhusar)': 'Pune APMC (Gul Bhusar)',
+    'Main Market Yard (Keli Paan)': 'Pune APMC (Keli Paan)',
+    'Main Market Yard (Leafy Veg)': 'Pune APMC (Leafy Veg)',
+    'Main Market Yard (Onion/Potato)': 'Pune APMC (Onion/Potato)',
+    'Main Market Yard (Dry Fruits)': 'Pune APMC (Dry Fruits)',
+    'Manjari (Fruit)': 'Manjari Sub Market (Fruit)',
+    'Manjari (Leafy Veg)': 'Manjari Sub Market (Leafy Veg)',
+    'Manjari (Onion/Potato)': 'Manjari Sub Market (Onion/Potato)',
+    'Manjari (Veg)': 'Manjari Sub Market (Veg)',
+    'Moshi (Fruit)': 'Moshi Sub Market (Fruit)',
+    'Moshi (Veg)': 'Moshi Sub Market (Veg)',
+    'Moshi (Onion/Potato)': 'Moshi Sub Market (Onion/Potato)',
+    'Pimpri Market (Veg)': 'Pimpri Sub Market (Veg)',
+    'Khadki Market (Veg)': 'Khadki Sub Market (Veg)'
 };
 
 // Maps English/Marathi headers to our standard keys
@@ -103,11 +111,14 @@ async function scrapeCategory(page, url, categoryName) {
 
 async function scrapeAllPuneMandis() {
     logger.info('Starting daily Pune APMC Mandi scrape...');
+    console.log('--- SCRAPER BOOTING UP ---');
 
     const browser = await chromium.launch({
-        headless: true,
+        headless: false, // Set to false to debug visually
         args: ['--no-sandbox', '--disable-setuid-sandbox']
     });
+
+    console.log('--- BROWSER LAUNCHED ---');
 
     const context = await browser.newContext({
         userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
@@ -117,56 +128,56 @@ async function scrapeAllPuneMandis() {
     let allScrapedPrices = [];
 
     try {
+        console.log('--- NAVIGATING TO APMC MAIN URL ---');
         // 1. Go to the main directory page
         await page.goto(APMC_URL, { waitUntil: 'domcontentloaded', timeout: 60000 });
+        console.log('--- REACHED APMC MAIN URL SUCCESSFULLY ---');
 
-        // 2. Find all category links (Fruits, Vegetables, Sub Markets)
-        // Looking at the APMC site structure, the links are usually inside specific cards/buttons.
-        const categories = await page.evaluate(() => {
-            // Find all anchor tags that look like category links
-            const links = Array.from(document.querySelectorAll('a'));
-            const categoryLinks = [];
+        // We use the exact hardcoded paths provided by the user
+        const runList = [
+            // 1. Main Market Yard
+            { name: 'Main Market Yard (Veg)', url: 'https://apmcpune.in/bajarbhav/daily-bajarbhav-dates/main-veg' },
+            { name: 'Main Market Yard (Fruit)', url: 'https://apmcpune.in/bajarbhav/daily-bajarbhav-dates/main-fruit' },
+            { name: 'Main Market Yard (Gul Bhusar)', url: 'https://apmcpune.in/bajarbhav/daily-bajarbhav-dates/main-gul-bhusar-dhanya' },
+            { name: 'Main Market Yard (Keli Paan)', url: 'https://apmcpune.in/bajarbhav/daily-bajarbhav-dates/keli-paan' },
+            { name: 'Main Market Yard (Leafy Veg)', url: 'https://apmcpune.in/bajarbhav/daily-bajarbhav-dates/main-leafy-veg' },
+            { name: 'Main Market Yard (Onion/Potato)', url: 'https://apmcpune.in/bajarbhav/daily-bajarbhav-dates/main-kanda' },
+            { name: 'Main Market Yard (Dry Fruits)', url: 'https://apmcpune.in/bajarbhav/daily-bajarbhav-dates/main-gul-bhusar-dry-fruits' },
 
-            links.forEach(link => {
-                const href = link.href;
-                const text = link.innerText.trim();
+            // 2. Manjari Sub Market
+            { name: 'Manjari (Fruit)', url: 'https://apmcpune.in/bajarbhav/daily-bajarbhav-dates/manjari-fruit' },
+            { name: 'Manjari (Leafy Veg)', url: 'https://apmcpune.in/bajarbhav/daily-bajarbhav-dates/manjari-leafy-veg' },
+            { name: 'Manjari (Onion/Potato)', url: 'https://apmcpune.in/bajarbhav/daily-bajarbhav-dates/manjari-onion' },
+            { name: 'Manjari (Veg)', url: 'https://apmcpune.in/bajarbhav/daily-bajarbhav-dates/manjari-veg' },
 
-                // Filter out irrelevant links. We want the ones that go to /bajarbhav/ 
-                // or have text matching our known categories
-                if (href && (href.includes('daily-bajarbhav-dates') || href.includes('market'))) {
-                    // Further refine to avoid header/footer links
-                    if (text.length > 5 && text.length < 50) {
-                        categoryLinks.push({ name: text, url: href });
-                    }
-                }
-            });
-            return categoryLinks;
-        });
+            // 3. Moshi Sub Market
+            { name: 'Moshi (Fruit)', url: 'https://apmcpune.in/bajarbhav/daily-bajarbhav-dates/moshi-fruit' },
+            { name: 'Moshi (Veg)', url: 'https://apmcpune.in/bajarbhav/daily-bajarbhav-dates/moshi-veg' },
+            { name: 'Moshi (Onion/Potato)', url: 'https://apmcpune.in/bajarbhav/daily-bajarbhav-dates/moshi-onion' },
 
-        logger.info(`Found ${categories.length} potential category links on main page.`);
+            // 4. Pimpri Market
+            { name: 'Pimpri Market (Veg)', url: 'https://apmcpune.in/bajarbhav/daily-bajarbhav-dates/pimpari-veg' },
 
-        // Fallback: If dynamic extraction fails (e.g., website redesign), use known hardcoded paths to the categories.
-        const runList = categories.length > 0 ? categories : [
-            { name: 'Fruits Market', url: 'https://apmcpune.in/bajarbhav/daily-bajarbhav-dates/main-fruit' },
-            { name: 'Vegetable Market', url: 'https://apmcpune.in/bajarbhav/daily-bajarbhav-dates/main-vegetable' },
-            { name: 'Onion Potato Market', url: 'https://apmcpune.in/bajarbhav/daily-bajarbhav-dates/main-onion' },
-            { name: 'Sub Market Manjari', url: 'https://apmcpune.in/bajarbhav/daily-bajarbhav-dates/main-manjari' },
-            { name: 'Sub Market Mulshi', url: 'https://apmcpune.in/bajarbhav/daily-bajarbhav-dates/main-mulshi' },
-            { name: 'Sub Market Pimpri', url: 'https://apmcpune.in/bajarbhav/daily-bajarbhav-dates/main-pimpri' },
-            { name: 'Sub Market Khadki', url: 'https://apmcpune.in/bajarbhav/daily-bajarbhav-dates/main-khadaki' },
+            // 5. Khadki Market
+            { name: 'Khadki Market (Veg)', url: 'https://apmcpune.in/bajarbhav/daily-bajarbhav-dates/khadki-veg' }
         ];
+
+        console.log(`--- FOUND ${runList.length} CATEGORIES TO SCRAPE ---`);
+        console.log(runList.map(c => c.name).join(', '));
 
         // 3. Loop through categories and scrape the tables
         for (const cat of runList) {
-            // Only process categories we recognized to avoid junk links
-            if (!CATEGORY_TO_MANDI[cat.name] && !cat.name.includes('Market')) continue;
-
+            console.log(`>>> Attempting to scrape: ${cat.name}`);
             const prices = await scrapeCategory(page, cat.url, cat.name);
+            console.log(`<<< Scraped ${prices.length} items from ${cat.name}`);
+
             allScrapedPrices = allScrapedPrices.concat(prices);
 
             // Polite delay between requests
             await page.waitForTimeout(2000);
         }
+
+        console.log('--- DONE SCRAPING ALL TABLES ---');
 
         if (allScrapedPrices.length === 0) {
             throw new Error('No prices could be scraped. Website layout may have changed.');
