@@ -24,9 +24,6 @@ const multer = require('multer');
 const { identifyPlant } = require('./plantnet_client');
 const { spawn } = require('child_process');
 
-
-
-
 const {
   initUserContextCollection,
   ensureUserContext,
@@ -42,6 +39,9 @@ const {
   getCropHealthHistory,
   getRecentActivities
 } = require('./ai-query-helper');
+
+const cron = require('node-cron');
+const { scrapeAllPuneMandis } = require('./scripts/scrape_pune_mandis');
 
 const puneMandis = require('./data/pune_mandis.json'); // Static Pune Mandis List
 
@@ -3208,6 +3208,20 @@ if (require.main === module) {
     try {
       await initializeCollections();
       logger.info('Database collections initialized successfully');
+
+      // Setup Cron Job for Daily Mandi Price Scraping
+      // Runs at 1:00 PM IST every day (07:30 UTC)
+      cron.schedule('30 7 * * *', async () => {
+        logger.info('⏰ Cron triggered: Running Daily APMC Mandi Scraper at 1:00 PM IST');
+        try {
+          await scrapeAllPuneMandis();
+          logger.info('✅ Daily Mandi Scrape Completed Successfully');
+        } catch (error) {
+          logger.error('❌ Error in Daily Mandi Scrape Cron Job', { error: error.message });
+        }
+      });
+      logger.info('Scheduled Cron Job: APMC Mandi Scraper at 1:00 PM IST (07:30 UTC)');
+
     } catch (error) {
       logger.error('Failed to initialize database collections', { error: error.message });
     }
