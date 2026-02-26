@@ -1965,9 +1965,15 @@ app.get('/mandiprices', async (req, res) => {
     const client = await connectToDatabase('read');
     const db = client.db('KrushiMitraDB');
 
+    // Escape special regex characters in the location string (like parentheses)
+    const escapeRegExp = (string) => {
+      return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // $& means the whole matched string
+    };
+    const safeLocation = escapeRegExp(location);
+
     // Sort by date descending so we get freshest data
     const prices = await db.collection('mandi_prices')
-      .find({ mandi: { $regex: new RegExp(location, 'i') } }) // case-insensitive match
+      .find({ mandi: { $regex: new RegExp(safeLocation, 'i') } }) // case-insensitive match
       .sort({ date: -1 })
       .toArray();
 
