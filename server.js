@@ -1931,6 +1931,57 @@ app.post('/demo/orb-process', (req, res) => {
   res.send(response.toString());
 });
 
+// GET /mandis
+// Fetches the latest live scraped Mandi prices from the MongoDB database
+app.get('/mandis', async (req, res) => {
+  try {
+    const client = await connectToDatabase('read');
+    const db = client.db('KrushiMitraDB');
+
+    // Sort by date descending so we get freshest data
+    const prices = await db.collection('mandi_prices').find({}).sort({ date: -1 }).toArray();
+
+    res.json({
+      status: 'success',
+      count: prices.length,
+      data: prices
+    });
+  } catch (error) {
+    logger.error('Error fetching mandis:', { error: error.message });
+    res.status(500).json({ status: 'error', error: error.message });
+  }
+});
+
+// GET /mandiprices
+// Fetches live scraped Mandi prices filtered by location/mandi name
+app.get('/mandiprices', async (req, res) => {
+  try {
+    const { location } = req.query;
+
+    if (!location) {
+      return res.status(400).json({ status: 'error', message: 'location parameter is required' });
+    }
+
+    const client = await connectToDatabase('read');
+    const db = client.db('KrushiMitraDB');
+
+    // Sort by date descending so we get freshest data
+    const prices = await db.collection('mandi_prices')
+      .find({ mandi: { $regex: new RegExp(location, 'i') } }) // case-insensitive match
+      .sort({ date: -1 })
+      .toArray();
+
+    res.json({
+      status: 'success',
+      count: prices.length,
+      data: prices
+    });
+  } catch (error) {
+    logger.error('Error fetching mandi prices by location:', { error: error.message });
+    res.status(500).json({ status: 'error', error: error.message });
+  }
+});
+
 // 3. Activity Tracking
 
 // POST /activities - Log activity for a farmer
