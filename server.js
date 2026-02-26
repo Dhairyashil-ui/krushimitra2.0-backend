@@ -1938,8 +1938,19 @@ app.get('/mandis', async (req, res) => {
     const client = await connectToDatabase('read');
     const db = client.db('KrushiMitraDB');
 
-    // Sort by date descending so we get freshest data
-    const prices = await db.collection('mandi_prices').find({}).sort({ date: -1 }).toArray();
+    // Group by unique Crop + Mandi to return ONLY the single most recent item for each,
+    // solving the issue where un-updated secondary markets vanish!
+    const prices = await db.collection('mandi_prices').aggregate([
+      { $sort: { date: -1 } },
+      {
+        $group: {
+          _id: { crop: "$crop", mandi: "$mandi" },
+          doc: { $first: "$$ROOT" }
+        }
+      },
+      { $replaceRoot: { newRoot: "$doc" } },
+      { $sort: { mandi: 1, crop: 1 } }
+    ]).toArray();
 
     res.json({
       status: 'success',
@@ -1965,17 +1976,22 @@ app.get('/mandiprices', async (req, res) => {
     const client = await connectToDatabase('read');
     const db = client.db('KrushiMitraDB');
 
-    // Escape special regex characters in the location string (like parentheses)
-    const escapeRegExp = (string) => {
-      return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // $& means the whole matched string
-    };
-    const safeLocation = escapeRegExp(location);
+    // Escape regex characters like () to fix the "No recent price data for (Gultekdi)" bug!
+    const safeLocation = location.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-    // Sort by date descending so we get freshest data
-    const prices = await db.collection('mandi_prices')
-      .find({ mandi: { $regex: new RegExp(safeLocation, 'i') } }) // case-insensitive match
-      .sort({ date: -1 })
-      .toArray();
+    // Aggregate ensures we get the latest prices per crop, hiding older duplicates
+    const prices = await db.collection('mandi_prices').aggregate([
+      { $match: { mandi: { $regex: new RegExp(safeLocation, 'i') } } },
+      { $sort: { date: -1 } },
+      {
+        $group: {
+          _id: "$crop",
+          doc: { $first: "$$ROOT" }
+        }
+      },
+      { $replaceRoot: { newRoot: "$doc" } },
+      { $sort: { crop: 1 } }
+    ]).toArray();
 
     res.json({
       status: 'success',
