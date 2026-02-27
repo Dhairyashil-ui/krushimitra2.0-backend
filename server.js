@@ -22,7 +22,8 @@ const { OAuth2Client } = require('google-auth-library'); // Google OAuth verific
 const Groq = require('groq-sdk');
 const multer = require('multer');
 const { identifyPlant } = require('./plantnet_client');
-const { spawn } = require('child_process');
+const cron = require('node-cron');
+const { spawn, exec } = require('child_process');
 
 const {
   initUserContextCollection,
@@ -3281,6 +3282,28 @@ if (require.main === module) {
     try {
       await initializeCollections();
       logger.info('Database collections initialized successfully');
+
+      // Helper to run the scraper script as a child process
+      const scrapeAllPuneMandis = () => {
+        return new Promise((resolve, reject) => {
+          logger.info('🚀 Launching scrape_pune_mandis.js child process...');
+
+          const scriptPath = path.join(__dirname, 'scripts', 'scrape_pune_mandis.js');
+
+          exec(`node "${scriptPath}"`, (error, stdout, stderr) => {
+            if (error) {
+              logger.error('❌ Scraper script failed execution:', { error: error.message, stderr });
+              reject(error);
+              return;
+            }
+            if (stderr && !stderr.includes('debugger')) {
+              logger.warn('⚠️ Scraper script warnings:', { stderr });
+            }
+            logger.info('✅ Scraper script completed successfully!', { stdout: stdout.substring(0, 500) + '...' });
+            resolve(stdout);
+          });
+        });
+      };
 
       // Setup Cron Job for Daily Mandi Price Scraping
       // Runs at 1:00 PM IST every day (07:30 UTC)
