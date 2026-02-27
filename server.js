@@ -41,7 +41,6 @@ const {
   getRecentActivities
 } = require('./ai-query-helper');
 
-const cron = require('node-cron');
 const { scrapeAllPuneMandis } = require('./scripts/scrape_pune_mandis');
 
 const puneMandis = require('./data/pune_mandis.json'); // Static Pune Mandis List
