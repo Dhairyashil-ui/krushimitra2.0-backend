@@ -24,7 +24,8 @@ const CATEGORY_TO_MANDI = {
     'Moshi (Veg)': 'Moshi Sub-Market Yard',
     'Moshi (Onion/Potato)': 'Moshi Sub-Market Yard',
     'Pimpri Market (Veg)': 'Pimpri Sub-Market Yard',
-    'Khadki Market (Veg)': 'Khadki Sub Market'
+    'Khadki Market (Veg)': 'Khadki Sub Market',
+    'Uttamnagar (Veg)': 'Uttamnagar Sub-Market'
 };
 
 // Maps English/Marathi headers to our standard keys
@@ -159,7 +160,10 @@ async function scrapeAllPuneMandis() {
             { name: 'Pimpri Market (Veg)', url: 'https://apmcpune.in/bajarbhav/daily-bajarbhav-dates/pimpari-veg' },
 
             // 5. Khadki Market
-            { name: 'Khadki Market (Veg)', url: 'https://apmcpune.in/bajarbhav/daily-bajarbhav-dates/khadki-veg' }
+            { name: 'Khadki Market (Veg)', url: 'https://apmcpune.in/bajarbhav/daily-bajarbhav-dates/khadki-veg' },
+
+            // 6. Uttamnagar
+            { name: 'Uttamnagar (Veg)', url: 'https://apmcpune.in/bajarbhav/daily-bajarbhav-dates/uttamnagar-veg' }
         ];
 
         console.log(`--- FOUND ${runList.length} CATEGORIES TO SCRAPE ---`);
