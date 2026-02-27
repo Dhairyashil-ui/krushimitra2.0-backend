@@ -2253,7 +2253,7 @@ app.get('/mandis/nearest', authenticate, async (req, res) => {
       return { ...mandi, distanceKm: parseFloat(d.toFixed(2)) };
     }).sort((a, b) => a.distanceKm - b.distanceKm);
 
-    const nearest = sortedMandis.slice(0, 5);
+    const nearest = sortedMandis; // Return all sorted by distance, let frontend handle scrolling
 
     const duration = Date.now() - startTime;
     logger.info('Nearest mandis calculated', {
