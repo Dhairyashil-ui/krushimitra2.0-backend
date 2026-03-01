@@ -24,6 +24,55 @@ const multer = require('multer');
 const { identifyPlant } = require('./plantnet_client');
 const cron = require('node-cron');
 const { spawn, exec } = require('child_process');
+const lancedb = require('vectordb');
+const { pipeline } = require('@xenova/transformers');
+
+// ==========================================
+// RAG VECTOR DATABASE INITIALIZATION
+// ==========================================
+let vectorDb;
+let vectorTable;
+let embeddingPipeline;
+let isVectorDBReady = false;
+
+async function initVectorPipeline() {
+  try {
+    // Use the extremely fast all-MiniLM-L6-v2 model (384 dimensions) natively in Node.js
+    embeddingPipeline = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', { quantized: true });
+
+    // Connect to the local embedded LanceDB instance
+    const dbPath = path.join(__dirname, '.lancedb');
+    vectorDb = await lancedb.connect(dbPath);
+
+    const tables = await vectorDb.tableNames();
+    if (!tables.includes('krushimitra_vectors')) {
+      // Create table with schema (384 dimensions matches the MiniLM model output)
+      const initData = [{ vector: Array(384).fill(0), source: 'init', content: 'init', metadata: '{}' }];
+      vectorTable = await vectorDb.createTable('krushimitra_vectors', initData);
+      console.log('✅ Created new Vector DB table: krushimitra_vectors');
+    } else {
+      vectorTable = await vectorDb.openTable('krushimitra_vectors');
+      console.log('✅ Connected to existing Vector DB table');
+    }
+
+    isVectorDBReady = true;
+  } catch (err) {
+    console.error('⚠️ Vector DB Pipeline Initialization Error:', err);
+  }
+}
+initVectorPipeline();
+
+async function generateVectorEmbedding(text) {
+  if (!isVectorDBReady || !embeddingPipeline) return null;
+  try {
+    const output = await embeddingPipeline(text, { pooling: 'mean', normalize: true });
+    return Array.from(output.data);
+  } catch (e) {
+    console.error('Embedding Generation Error:', e);
+    return null;
+  }
+}
+// ==========================================
 
 const {
   initUserContextCollection,
@@ -33,13 +82,7 @@ const {
   fetchUserContext
 } = require('./user-context');
 
-// Import RAG Helpers
-const {
-  getLatestMandiPrices,
-  getActiveSchemes,
-  getCropHealthHistory,
-  getRecentActivities
-} = require('./ai-query-helper');
+// Replaced hardcoded RAG helpers with Vector DB pipeline in Phase 3
 
 const { scrapeAllPuneMandis } = require('./scripts/scrape_pune_mandis');
 
@@ -209,14 +252,15 @@ let farmersCollection;
 let activitiesCollection;
 let mandipricesCollection;
 let aiinteractionsCollection;
-let usersCollection; // Add this line
+let usersCollection;
 let weatherDataCollection;
 let sessionsCollection;
-let userMemoriesCollection;
+let currentConversationsCollection; // NEW: Replaces userMemories
+let pastConversationsCollection;    // NEW: Replaces userMemories
 let otpCollection;
 let userContextCollection;
-let schemesCollection;     // NEW: For government schemes
-let cropHealthCollection;  // NEW: For disease history
+let schemesCollection;
+let cropHealthCollection;
 
 const DEFAULT_MEMORY_SLICE = Number(process.env.AI_MEMORY_SLICE || 10);
 const MAX_MEMORY_ENTRIES = Number(process.env.AI_MEMORY_LIMIT || 200);
@@ -269,16 +313,16 @@ async function initializeCollections() {
     activitiesCollection = db.collection('activities');
     mandipricesCollection = db.collection('mandi_prices');
     aiinteractionsCollection = db.collection('aiinteractions');
-    usersCollection = db.collection('users'); // Add this line
+    usersCollection = db.collection('users');
     sessionsCollection = db.collection('sessions');
     weatherDataCollection = db.collection('weather_data');
-    userMemoriesCollection = db.collection('user_memories');
     otpCollection = db.collection('otp_codes');
     userContextCollection = await initUserContextCollection(db);
-    schemesCollection = db.collection('schemes');         // NEW
-    cropHealthCollection = db.collection('crop_health');  // NEW
+    schemesCollection = db.collection('schemes');
+    cropHealthCollection = db.collection('crop_health');
+    currentConversationsCollection = db.collection('current_conversations'); // NEW
+    pastConversationsCollection = db.collection('past_conversations');       // NEW
 
-    await userMemoriesCollection.createIndex({ userKey: 1 }, { unique: true });
     await aiinteractionsCollection.createIndex({ userId: 1, timestamp: -1 });
     await otpCollection.createIndex({ email: 1 }, { unique: true });
     await otpCollection.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
@@ -1716,20 +1760,56 @@ app.post('/predict', upload.single('file'), async (req, res) => {
 
     console.timeEnd('TOTAL_REQUEST_TIME');
 
-    // Save to Database (RAG Memory)
+    // Save to Database (RAG Memory & Schema Refactoring)
     if (cropHealthCollection) {
       try {
+        const userId = req.body.farmerId || req.userId || 'anonymous';
+        const plantName = plantIdentity?.plant_common || 'Unknown';
+        const diseaseName = diseaseResult?.disease_analysis?.disease_name || 'Unknown';
+
+        // Check if user has uploaded this plant before to track progress
+        const previousRecord = await cropHealthCollection.findOne(
+          { user_id: userId, plant_name: plantName },
+          { sort: { timestamp: -1 } }
+        );
+
+        // Generate 'protip' based on progress
+        let protipStr = aiSolution.tips?.[0] || 'Ensure proper care and sunlight.';
+        if (previousRecord) {
+          const daysAgo = Math.round((new Date() - new Date(previousRecord.timestamp)) / (1000 * 60 * 60 * 24));
+          protipStr = `Follow-Up: You scanned this ${plantName} ${daysAgo} days ago for ${previousRecord.disease}. Monitor changes closely to see if the treatment worked.`;
+        }
+
         const diagnosisRecord = {
-          farmerId: req.body.farmerId || 'anonymous',
+          user_id: userId,
+          plant_name: plantName,
+          disease: diseaseName,
+          treatment: aiSolution.treatment || 'No specific treatment given',
+          protip: protipStr,
           timestamp: new Date(),
-          plant: plantIdentity?.plant_common || 'Unknown',
-          disease: diseaseResult?.disease_analysis?.disease_name || 'Unknown',
-          confidence: diseaseResult?.disease_analysis?.confidence || 0,
-          imagePath: imagePath,
-          aiSolution: aiSolution
+          image_pattern_hash: crypto.createHash('md5').update(plantName + userId).digest('hex')
         };
+
+        // Attach protip back to response payload
+        aiSolution.protip = protipStr;
+
         await cropHealthCollection.insertOne(diagnosisRecord);
-        console.log('✅ Disease diagnosis saved to database.');
+        console.log(`✅ Crop Health saved for ${userId}: ${plantName} -> ${diseaseName}`);
+
+        // Generate Vector Embedding for Semantic Search
+        const vectorText = `Crop Health Diagnosis for User ${userId}: Scanned a ${plantName}. Detected disease: ${diseaseName}. Treatment recommended: ${aiSolution.treatment || 'None'}. Protip: ${protipStr}`;
+        const embedding = await generateVectorEmbedding(vectorText);
+
+        if (embedding && isVectorDBReady) {
+          await vectorTable.add([{
+            vector: embedding,
+            source: 'crop_health',
+            content: vectorText,
+            metadata: JSON.stringify({ user_id: userId, plant_name: plantName, disease: diseaseName, timestamp: diagnosisRecord.timestamp.toISOString() })
+          }]);
+          console.log(`✅ Saved ${plantName} vector embedding to LanceDB`);
+        }
+
       } catch (dbError) {
         console.error('⚠️ Failed to save diagnosis to DB:', dbError.message);
       }
@@ -2443,52 +2523,52 @@ app.post('/ai/chat', authenticate, async (req, res) => {
       });
     }
 
-    const memoryEntries = await getUserMemoryEntries(memoryKey, DEFAULT_MEMORY_SLICE);
-
     // STEP 3: Generate AI response with full context
-    // Build structured prompt with user data + last 5 conversations + current query
     const userData = userContextPayload?.userData || {};
-    const lastConversations = userContextPayload?.query || [];
+
+    // Fetch rolling 5-message conversational memory
+    let lastConversations = [];
+    if (currentConversationsCollection && contextUserId) {
+      try {
+        lastConversations = await currentConversationsCollection
+          .find({ userId: contextUserId.toString() })
+          .sort({ timestamp: 1 }) // Chronological order for the prompt
+          .toArray();
+      } catch (e) {
+        logger.warn('Failed to fetch current conversations', { error: e.message });
+      }
+    }
 
     // ---------------------------------------------------------
-    // RAG: Fetch Real-Time Context from 6 Features
+    // VECTOR RAG: Semantic Search via LanceDB Embeddings
     // ---------------------------------------------------------
-    let ragContextData = {};
+    let ragContextData = { semantic_matches: [] };
     try {
-      const farmerLocation = userData?.location?.address || farmerProfile?.location || 'India';
-      const farmerCrops = farmerProfile?.crops || [];
-      const primaryCrop = farmerCrops.length > 0 ? farmerCrops[0] : null;
+      if (isVectorDBReady && vectorTable) {
+        // Embed the user's incoming query
+        const queryEmbedding = await generateVectorEmbedding(query);
 
-      const [
-        schemes,
-        mandiPrices,
-        healthHistory,
-        activities
-      ] = await Promise.all([
-        getActiveSchemes(schemesCollection, farmerLocation),
-        getLatestMandiPrices(mandipricesCollection, primaryCrop, farmerLocation),
-        getCropHealthHistory(cropHealthCollection, farmerId || userIdentifier),
-        getRecentActivities(activitiesCollection, farmerId || userIdentifier)
-      ]);
+        if (queryEmbedding) {
+          // Perform mathematically precise Similarity Search
+          const results = await vectorTable
+            .search(queryEmbedding)
+            .limit(3)
+            .execute();
 
-      // Add RAG context to the prompt
-      ragContextData = {
-        schemes: schemes.map(s => s.title),
-        mandi_prices: mandiPrices.map(p => `${p.crop}: ₹${p.price} (${p.location})`),
-        crop_health_issues: healthHistory.map(h => `${h.plant}: ${h.disease} (${h.timestamp})`),
-        recent_activities: activities.map(a => `${a.type}: ${a.description} (${a.date})`)
-      };
+          // Map mathematical results back to human-readable strings for the LLM
+          ragContextData.semantic_matches = results.map(r => r.content);
 
-      console.log('✅ RAG Context Injected:', {
-        schemes: schemes.length,
-        prices: mandiPrices.length,
-        health: healthHistory.length,
-        activities: activities.length
-      });
-
+          logger.info('✅ Vector RAG Context Injected', {
+            matchesFound: results.length,
+            scores: results.map(r => r._distance) // Lower distance = stronger match
+          });
+        }
+      } else {
+        logger.warn('⚠️ Vector DB not ready, skipping semantic search');
+      }
     } catch (ragError) {
-      console.error('⚠️ RAG Context Injection Failed:', ragError.message);
-      ragContextData = { error: "Could not retrieve real-time data" };
+      console.error('⚠️ Vector RAG Pipeline Failed:', ragError.message);
+      ragContextData = { error: "Could not retrieve dynamic vector data" };
     }
     // ---------------------------------------------------------
 
@@ -2513,7 +2593,7 @@ app.post('/ai/chat', authenticate, async (req, res) => {
       },
       last_5_conversations: lastConversations.map(conv => ({
         role: conv.role,
-        message: conv.message
+        content: conv.content || conv.message
       })),
       farmer_profile: farmerProfile ? {
         phone: farmerProfile.phone,
@@ -2612,30 +2692,39 @@ app.post('/ai/chat', authenticate, async (req, res) => {
       // Don't fail the whole request if we can't save to DB, just log the error
     }
 
-    // STEP 4: Save user question and AI response to UserContext.query
-    if (contextUserId) {
+    // STEP 4: Save user question and AI response to rolling current_conversations
+    if (currentConversationsCollection && pastConversationsCollection && contextUserId) {
       try {
-        logger.info('Attempting to save conversation to UserContext', {
-          userId: contextUserId?.toString(),
-          queryLength: query?.length,
-          responseLength: aiResponse?.length
-        });
+        const userIdStr = contextUserId.toString();
+        const timestamp = new Date();
 
-        await appendChatMessage(contextUserId, [
-          { role: 'user', message: query },        // Save user question
-          { role: 'assistant', message: aiResponse } // Save AI response
+        // Insert new interaction pair
+        await currentConversationsCollection.insertMany([
+          { userId: userIdStr, role: 'user', content: query, timestamp },
+          { userId: userIdStr, role: 'assistant', content: aiResponse, timestamp: new Date(timestamp.getTime() + 10) }
         ]);
 
-        logger.info('Conversation saved to UserContext.query', {
-          userId: contextUserId?.toString(),
-          messagesSaved: 2
-        });
-      } catch (contextAppendError) {
-        logger.error('Failed to update UserContext query array', {
-          error: contextAppendError.message,
-          stack: contextAppendError.stack,
-          userId: contextUserId?.toString() || userIdentifier
-        });
+        // Enforce 5 conversation limit (10 total messages/documents)
+        const currentCount = await currentConversationsCollection.countDocuments({ userId: userIdStr });
+        if (currentCount > 10) {
+          const overflow = currentCount - 10;
+          const oldestMessages = await currentConversationsCollection
+            .find({ userId: userIdStr })
+            .sort({ timestamp: 1 })
+            .limit(overflow)
+            .toArray();
+
+          if (oldestMessages.length > 0) {
+            // Move oldest to past_conversations archival
+            await pastConversationsCollection.insertMany(oldestMessages);
+
+            // Delete from active current_conversations
+            const objectIds = oldestMessages.map(doc => doc._id);
+            await currentConversationsCollection.deleteMany({ _id: { $in: objectIds } });
+          }
+        }
+      } catch (saveError) {
+        logger.error('Failed to process rolling conversation window', { error: saveError.message });
       }
     } else {
       logger.warn('No contextUserId available, skipping UserContext update', {

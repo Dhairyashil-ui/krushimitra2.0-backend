@@ -3,6 +3,8 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const { chromium } = require('playwright');
 const { connectToDatabase } = require('../db');
 const { logger } = require('../logger');
+const lancedb = require('vectordb');
+const { pipeline } = require('@xenova/transformers');
 
 // The main landing page for Pune APMC prices
 const APMC_URL = 'https://apmcpune.in/en/market-price-en/daily-market-price-en';
@@ -85,17 +87,18 @@ async function scrapeCategory(page, url, categoryName) {
                 };
 
                 const resultObj = {
-                    crop: cropName,
-                    mandi: mandi,
-                    unit: unitRaw.includes('क्विंटल') || unitRaw.includes('Quintal') ? 'Quintal' : unitRaw,
-                    minPrice: parsePrice(cells[3]),
-                    maxPrice: parsePrice(cells[4]),
-                    modalPrice: parsePrice(cells[5] || cells[4]), // Fallback to max if average is missing
-                    date: new Date().toISOString()
+                    user_id: "system", // Required by new schema
+                    crop_name: cropName,
+                    mandi_name: mandi,
+                    quality: "Standard", // Default standard quality
+                    min_price: parsePrice(cells[3]),
+                    max_price: parsePrice(cells[4]),
+                    modal_price: parsePrice(cells[5] || cells[4]), // Fallback to max if average is missing
+                    timestamp: new Date().toISOString()
                 };
 
                 // Only add if we actually got prices
-                if (resultObj.modalPrice > 0 || resultObj.maxPrice > 0) {
+                if (resultObj.modal_price > 0 || resultObj.max_price > 0) {
                     results.push(resultObj);
                 }
             }
@@ -189,6 +192,15 @@ async function scrapeAllPuneMandis() {
 
         logger.info(`Finished scraping. Total items collected: ${allScrapedPrices.length}`);
 
+        // --- Vector DB Initialization ---
+        logger.info('Initializing LanceDB for Mandi Price embeddings...');
+        const dbPath = path.join(__dirname, '..', '.lancedb');
+        const vectorDb = await lancedb.connect(dbPath);
+        const vectorTable = await vectorDb.openTable('krushimitra_vectors');
+        const embeddingPipeline = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', { quantized: true });
+        logger.info('LanceDB Ready.');
+        // --------------------------------
+
         // 4. Save to Database
         const dbClient = await connectToDatabase('write');
         const db = dbClient.db("KrushiMitraDB");
@@ -204,9 +216,9 @@ async function scrapeAllPuneMandis() {
         for (const record of allScrapedPrices) {
             // Find if we already inserted this crop at this mandi today
             const query = {
-                crop: record.crop,
-                mandi: record.mandi,
-                date: { $gte: today } // any record from today
+                crop_name: record.crop_name,
+                mandi_name: record.mandi_name,
+                timestamp: { $gte: today.toISOString() } // any record from today
             };
 
             const existing = await collection.findOne(query);
@@ -215,11 +227,11 @@ async function scrapeAllPuneMandis() {
                 // Update the existing record for today
                 await collection.updateOne({ _id: existing._id }, {
                     $set: {
-                        minPrice: record.minPrice,
-                        maxPrice: record.maxPrice,
-                        modalPrice: record.modalPrice,
-                        unit: record.unit,
-                        date: new Date() // update timestamp
+                        min_price: record.min_price,
+                        max_price: record.max_price,
+                        modal_price: record.modal_price,
+                        quality: record.quality,
+                        timestamp: new Date().toISOString() // update timestamp
                     }
                 });
                 updatedCount++;
@@ -227,9 +239,25 @@ async function scrapeAllPuneMandis() {
                 // Insert fresh record
                 await collection.insertOne({
                     ...record,
-                    date: new Date()
+                    timestamp: new Date().toISOString()
                 });
                 insertedCount++;
+            }
+
+            // Generate Vector Embedding for LanceDB Semantic Search
+            try {
+                const vectorText = `Mandi Price Report: ${record.crop_name} is trading at ${record.mandi_name}. Minimum price: ₹${record.min_price}. Maximum price: ₹${record.max_price}. Average/Modal price: ₹${record.modal_price}. Quality: ${record.quality}.`;
+                const output = await embeddingPipeline(vectorText, { pooling: 'mean', normalize: true });
+                const embedding = Array.from(output.data);
+
+                await vectorTable.add([{
+                    vector: embedding,
+                    source: 'mandi_prices',
+                    content: vectorText,
+                    metadata: JSON.stringify({ mandi_name: record.mandi_name, crop_name: record.crop_name, timestamp: record.timestamp })
+                }]);
+            } catch (vecErr) {
+                logger.error(`Failed to vector embed ${record.crop_name}: ${vecErr.message}`);
             }
         }
 
