@@ -3,7 +3,7 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const { chromium } = require('playwright');
 const { connectToDatabase } = require('../db');
 const { logger } = require('../logger');
-const lancedb = require('vectordb');
+const lancedb = require('@lancedb/lancedb');
 const { pipeline } = require('@xenova/transformers');
 
 // The main landing page for Pune APMC prices

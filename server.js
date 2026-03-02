@@ -24,7 +24,7 @@ const multer = require('multer');
 const { identifyPlant } = require('./plantnet_client');
 const cron = require('node-cron');
 const { spawn, exec } = require('child_process');
-const lancedb = require('vectordb');
+const lancedb = require('@lancedb/lancedb');
 const { pipeline } = require('@xenova/transformers');
 
 // ==========================================
